@@ -14,7 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Iterator
 
-from ..graph.model import CallSite, Confidence, Edge, NodeKind
+from ..graph.model import CALLABLE_KINDS, CallSite, Confidence, Edge, NodeKind
 from .discovery import SkippedFile
 from .symbols import SymbolTable
 
@@ -62,9 +62,15 @@ def resolve_calls(
 def to_edges(calls: list[ResolvedCall]) -> list[Edge]:
     grouped: dict[tuple[str, str, Confidence], list[CallSite]] = {}
     for call in calls:
-        if call.target is None:
+        targets: tuple[str, ...]
+        if call.target is not None:
+            targets = (call.target,)
+        elif call.confidence is Confidence.AMBIGUOUS:
+            targets = call.candidates
+        else:
             continue
-        grouped.setdefault((call.caller, call.target, call.confidence), []).append(call.site)
+        for target in targets:
+            grouped.setdefault((call.caller, target, call.confidence), []).append(call.site)
     return [
         Edge(source=caller, target=target, confidence=confidence,
              call_sites=tuple(sorted(sites, key=lambda s: s.line)))
@@ -597,7 +603,27 @@ class _Resolver:
                 if not self.table.is_internal(candidate):
                     return candidate, Confidence.EXTERNAL, ()
 
-        return None, Confidence.UNRESOLVED, ()
+        return self._infer_by_name(attribute)
+
+    def _infer_by_name(
+        self, attribute: str
+    ) -> tuple[str | None, Confidence, tuple[str, ...]]:
+        """Last resort: match the attribute against every definition of that name.
+
+        One candidate is a reasonable guess and is marked inferred. Several
+        candidates are recorded but never trusted - the UI hides them by
+        default, because a confident wrong arrow is worse than no arrow.
+        """
+        candidates = [
+            qualname
+            for qualname in self.table.by_simple_name.get(attribute, [])
+            if self.table.definitions[qualname].kind in CALLABLE_KINDS
+        ]
+        if not candidates:
+            return None, Confidence.UNRESOLVED, ()
+        if len(candidates) == 1:
+            return candidates[0], Confidence.INFERRED, tuple(candidates)
+        return None, Confidence.AMBIGUOUS, tuple(sorted(candidates))
 
     @staticmethod
     def _dotted_receiver(node: ast.expr) -> str | None:

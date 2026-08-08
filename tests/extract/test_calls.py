@@ -526,8 +526,12 @@ def test_shadowed_receiver_does_not_resolve_through_a_module_alias(tmp_path):
             "def go():\n    util = object()\n    util.parse()\n"
         ),
     })
-    assert ("app.cli.go", "app.util.parse") not in result
-    assert result[("app.cli.go", None)] is Confidence.UNRESOLVED
+    # util.parse() must not resolve through the module-alias path (util is
+    # shadowed by the assignment) - but "parse" happens to be a globally
+    # unique method name in this fixture, so the name-index fallback
+    # still guesses it, honestly, at INFERRED rather than the RESOLVED tier
+    # the alias path would have produced.
+    assert result[("app.cli.go", "app.util.parse")] is Confidence.INFERRED
 
 
 # -- a separate change fix round 1: proven correctness defects in the own code -
@@ -552,8 +556,10 @@ def test_a_nested_def_shadows_a_receiver_even_though_it_is_not_a_parameter(tmp_p
             "    util.parse()\n"
         ),
     })
-    assert ("app.cli.go", "app.util.parse") not in result
-    assert result[("app.cli.go", None)] is Confidence.UNRESOLVED
+    # Same reasoning as the shadowed-receiver test above: the alias path must
+    # not fire, but "parse" is still a globally unique name in this fixture,
+    # so the fallback guesses it honestly at INFERRED.
+    assert result[("app.cli.go", "app.util.parse")] is Confidence.INFERRED
 
 
 def test_super_call_with_explicit_arguments_does_not_resolve(tmp_path):
@@ -569,8 +575,12 @@ def test_super_call_with_explicit_arguments_does_not_resolve(tmp_path):
         "\n"
         "class C(B):\n    def go(self):\n        super(B, self).go()\n"
     )})
+    # Falling through to the name-index fallback, "go" is defined by
+    # three classes in this fixture (A, B, C), so it lands at AMBIGUOUS - the
+    # invariant this test protects (never a confident, specific edge to
+    # m.B.go) still holds, just via a different honest tier than UNRESOLVED.
     assert ("m.C.go", "m.B.go") not in result
-    assert result[("m.C.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.C.go", None)] is Confidence.AMBIGUOUS
 
 
 def test_bare_super_call_still_resolves_to_the_base_method(tmp_path):
@@ -599,8 +609,11 @@ def test_self_reassignment_prevents_confident_mro_resolution(tmp_path):
         "        self.retry()\n"
         "    def retry(self):\n        pass\n"
     )})
-    assert ("m.H.send", "m.H.retry") not in result
-    assert result[("m.H.send", None)] is Confidence.UNRESOLVED
+    # The MRO path must not fire (self no longer names the instance), but
+    # "retry" is still a globally unique name in this fixture, so the
+    # fallback guesses it honestly at INFERRED rather than the RESOLVED tier
+    # the MRO path would have produced.
+    assert result[("m.H.send", "m.H.retry")] is Confidence.INFERRED
 
 
 def test_call_through_a_same_module_class_receiver_resolves(tmp_path):
@@ -686,7 +699,11 @@ def test_reassignment_to_an_unknown_value_drops_the_type(tmp_path):
         "    h = other\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
+    # The type-inference path must not fire (h no longer names an H), but
+    # "send" is still a globally unique name in this fixture, so the
+    # fallback guesses it honestly at INFERRED rather than the RESOLVED tier
+    # the type-inference path would have produced.
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 # -- a separate change fix round 1: every rebinding form must drop a stale type --------
@@ -710,8 +727,10 @@ def test_for_target_reassignment_drops_the_type(tmp_path):
         "        pass\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    # The type-inference path must not fire (h no longer names an H), but
+    # "send" is still a globally unique name in this fixture, so the
+    # fallback guesses it honestly at INFERRED rather than RESOLVED.
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_with_as_reassignment_drops_the_type(tmp_path):
@@ -724,8 +743,7 @@ def test_with_as_reassignment_drops_the_type(tmp_path):
         "        pass\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_walrus_reassignment_drops_the_type(tmp_path):
@@ -738,8 +756,7 @@ def test_walrus_reassignment_drops_the_type(tmp_path):
         "        pass\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_augmented_assignment_reassignment_drops_the_type(tmp_path):
@@ -751,8 +768,7 @@ def test_augmented_assignment_reassignment_drops_the_type(tmp_path):
         "    h += 1\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_an_unrelated_statement_between_bindings_does_not_clear_the_type(tmp_path):
@@ -792,8 +808,10 @@ def test_tuple_unpacking_reassignment_drops_the_type(tmp_path):
         "    h, k = xs\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    # The type-inference path must not fire, but "send" is still a globally
+    # unique name in this fixture, so the fallback guesses it honestly
+    # at INFERRED rather than RESOLVED.
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_del_drops_the_type(tmp_path):
@@ -805,8 +823,7 @@ def test_del_drops_the_type(tmp_path):
         "    del h\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_match_capture_reassignment_drops_the_type(tmp_path):
@@ -820,8 +837,7 @@ def test_match_capture_reassignment_drops_the_type(tmp_path):
         "            pass\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_in_function_import_reassignment_drops_the_type(tmp_path):
@@ -833,8 +849,7 @@ def test_in_function_import_reassignment_drops_the_type(tmp_path):
         "    import os as h\n"
         "    h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
 def test_nonlocal_rebinding_from_a_closure_drops_the_type(tmp_path):
@@ -850,8 +865,7 @@ def test_nonlocal_rebinding_from_a_closure_drops_the_type(tmp_path):
         "    inner()\n"
         "    h.send()\n"
     )})
-    assert ("m.outer", "m.H.send") not in result
-    assert result[("m.outer", None)] is Confidence.UNRESOLVED
+    assert result[("m.outer", "m.H.send")] is Confidence.INFERRED
 
 
 def test_lambda_parameter_shadowing_a_typed_name_drops_the_type(tmp_path):
@@ -862,5 +876,71 @@ def test_lambda_parameter_shadowing_a_typed_name_drops_the_type(tmp_path):
         "    h = H()\n"
         "    f = lambda h: h.send()\n"
     )})
-    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", "m.H.send")] is Confidence.INFERRED
+
+
+# -- a separate change: the inferred and ambiguous tiers -------------------------------
+
+
+def test_a_unique_method_name_is_inferred(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def dispatch_email(self):\n        pass\n"
+        "\n"
+        "def go(thing):\n"
+        "    thing.dispatch_email()\n"
+    )})
+    assert result[("m.go", "m.H.dispatch_email")] is Confidence.INFERRED
+
+
+def test_a_repeated_method_name_is_ambiguous(tmp_path):
+    # edges_for keys by (caller, target), and an AMBIGUOUS ResolvedCall has
+    # target=None - that collapses every candidate into one (caller, None)
+    # entry and loses exactly the fan-out this test needs to see, so it goes
+    # through to_edges directly instead, the same way a real consumer would.
+    for rel, text in {
+        "a.py": "class X:\n    def run(self):\n        pass\n",
+        "b.py": "class Y:\n    def run(self):\n        pass\n",
+        "c.py": "def go(thing):\n    thing.run()\n",
+    }.items():
+        (tmp_path / rel).write_text(text)
+    table, _ = build_symbol_table(sorted(tmp_path.rglob("*.py")), [tmp_path])
+    edges = to_edges(resolve_calls(table))
+    ambiguous = {e.target for e in edges
+                 if e.source == "c.go" and e.confidence is Confidence.AMBIGUOUS}
+    assert ambiguous == {"a.X.run", "b.Y.run"}
+
+
+def test_ambiguous_calls_record_every_candidate(tmp_path):
+    for rel, text in {
+        "a.py": "class X:\n    def run(self):\n        pass\n",
+        "b.py": "class Y:\n    def run(self):\n        pass\n",
+        "c.py": "def go(thing):\n    thing.run()\n",
+    }.items():
+        (tmp_path / rel).write_text(text)
+    table, _ = build_symbol_table(sorted(tmp_path.rglob("*.py")), [tmp_path])
+    call = next(c for c in resolve_calls(table) if c.caller == "c.go")
+    assert sorted(call.candidates) == ["a.X.run", "b.Y.run"]
+
+
+def test_an_unknown_method_name_stays_unresolved(tmp_path):
+    result = edges_for(tmp_path, {"m.py": "def go(thing):\n    thing.nothing_defined()\n"})
     assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_inference_never_overrides_a_certain_resolution(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n"
+        "    def send(self):\n        self.retry()\n"
+        "    def retry(self):\n        pass\n"
+        "\n"
+        "class Other:\n    def retry(self):\n        pass\n"
+    )})
+    assert result[("m.H.send", "m.H.retry")] is Confidence.RESOLVED
+
+
+def test_module_level_functions_participate_in_inference(tmp_path):
+    result = edges_for(tmp_path, {
+        "a.py": "def uniquely_named():\n    pass\n",
+        "b.py": "def go(thing):\n    thing.uniquely_named()\n",
+    })
+    assert result[("b.go", "a.uniquely_named")] is Confidence.INFERRED
