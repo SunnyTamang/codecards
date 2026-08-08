@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Iterator
 
 from ..graph.model import CallSite, Confidence, Edge, NodeKind
+from .discovery import SkippedFile
 from .symbols import SymbolTable
 
 _FUNCTION_NODES = (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -41,8 +42,18 @@ class _Context:
     shadowed: set[str]  # local bindings that block module-scope lookup
 
 
-def resolve_calls(table: SymbolTable) -> list[ResolvedCall]:
-    resolver = _Resolver(table)
+def resolve_calls(
+    table: SymbolTable, skipped: list[SkippedFile] | None = None
+) -> list[ResolvedCall]:
+    """Resolve every call site in table.
+
+    If skipped is given, a function whose own expression tree is too deep to
+    walk without exceeding Python's recursion limit is recorded there (path
+    of its module, reason naming the function) instead of silently vanishing
+    with no trace anywhere in the public API. Everything else in that module
+    still resolves normally - only the pathological function is skipped.
+    """
+    resolver = _Resolver(table, skipped)
     return resolver.run()
 
 
@@ -134,11 +145,15 @@ def _iter_stmt(
         return
 
     # Any other statement: its expr/stmt children inherit the flags unchanged.
+    # Anything that is neither (e.g. a with-item, a match case) falls through
+    # to _iter_any, which reaches it without pretending to know its semantics.
     for child in ast.iter_child_nodes(node):
         if isinstance(child, ast.expr):
             yield from _iter_expr(child, conditional, loop)
         elif isinstance(child, ast.stmt):
             yield from _iter_stmt(child, conditional, loop)
+        else:
+            yield from _iter_any(child, conditional, loop)
 
 
 def _iter_stmts(
@@ -185,6 +200,9 @@ def _iter_expr(
         return
 
     # Any other expression: recurse into its expr/stmt children unchanged.
+    # Anything that is neither - e.g. a Lambda's ast.arguments, which holds
+    # the default-value expressions - falls through to _iter_any so it is
+    # still reached rather than silently dropped.
     for child in ast.iter_child_nodes(node):
         if isinstance(child, (*_FUNCTION_NODES, ast.ClassDef)):
             continue
@@ -192,6 +210,38 @@ def _iter_expr(
             yield from _iter_expr(child, conditional, loop)
         elif isinstance(child, ast.stmt):
             yield from _iter_stmt(child, conditional, loop)
+        else:
+            yield from _iter_any(child, conditional, loop)
+
+
+def _iter_any(
+    node: ast.AST, conditional: bool, loop: bool
+) -> Iterator[tuple[ast.Call, bool, bool]]:
+    """Fallback for AST nodes that are neither a statement nor an expression:
+    ast.arguments (a Lambda's defaults live here), ast.keyword, ast.withitem,
+    ast.comprehension, ast.ExceptHandler, ast.match_case, and anything else no
+    one enumerated by hand.
+
+    _iter_stmt and _iter_expr know the precise semantics of the node types
+    they special-case, so a call found there gets a flag that is provably
+    correct. This function does not know the semantics of whatever it is
+    given - it just inherits the flags unchanged and keeps recursing. That is
+    a deliberate trade: an unenumerated node costs at most an imprecise flag,
+    never a silently missing call. (Most of what reaches here is already
+    handled precisely by name at its point of use - e.g. ast.withitem via
+    ast.With, ast.comprehension via the comprehension node types - so this
+    is primarily the ast.arguments/ast.keyword catch-all.)
+    """
+    if isinstance(node, ast.expr):
+        yield from _iter_expr(node, conditional, loop)
+        return
+    if isinstance(node, (*_FUNCTION_NODES, ast.ClassDef)):
+        return  # a separate caller - not this function's business
+    if isinstance(node, ast.stmt):
+        yield from _iter_stmt(node, conditional, loop)
+        return
+    for child in ast.iter_child_nodes(node):
+        yield from _iter_any(child, conditional, loop)
 
 
 def _iter_own_scope(body: list[ast.stmt]) -> Iterator[ast.AST]:
@@ -211,23 +261,18 @@ def _iter_own_scope(body: list[ast.stmt]) -> Iterator[ast.AST]:
 
 
 class _Resolver:
-    def __init__(self, table: SymbolTable) -> None:
+    def __init__(self, table: SymbolTable, skipped: list[SkippedFile] | None = None) -> None:
         self.table = table
         self.calls: list[ResolvedCall] = []
+        self.skipped = skipped
 
     def run(self) -> list[ResolvedCall]:
         for module_id, info in sorted(self.table.modules.items()):
             try:
                 tree = ast.parse(info.source, filename=str(info.path))
-                self._visit_body(tree.body, module_id, parent=module_id, class_qualname=None)
-            except (SyntaxError, RecursionError):
-                # SyntaxError: already reported in pass 1.
-                # RecursionError: pass 1 accepted the file (its own walk is far
-                # shallower - it never recurses into expression trees), but a
-                # pathologically deep expression can still blow the stack while
-                # this pass resolves it. One pathological file must not abort
-                # the whole run, so it is skipped exactly like a syntax error.
+            except SyntaxError:  # already reported in pass 1
                 continue
+            self._visit_body(tree.body, module_id, parent=module_id, class_qualname=None)
         return self.calls
 
     def _visit_body(
@@ -258,20 +303,40 @@ class _Resolver:
             shadowed=set(),
         )
         self._bind_locals(node, context)
-        for call, in_conditional, in_loop in _iter_calls(node.body):
-            site = CallSite(
-                line=call.lineno, in_conditional=in_conditional, in_loop=in_loop
-            )
-            target, confidence, candidates = self._resolve(call.func, context)
-            self.calls.append(
-                ResolvedCall(
-                    caller=caller,
-                    target=target,
-                    confidence=confidence,
-                    site=site,
-                    candidates=candidates,
+        # Buffered locally, not appended straight to self.calls: if this
+        # function's expression tree is too deep and blows the recursion
+        # limit partway through, we want all-or-nothing for this one
+        # function rather than a half-recorded set of its calls.
+        found: list[ResolvedCall] = []
+        try:
+            for call, in_conditional, in_loop in _iter_calls(node.body):
+                site = CallSite(
+                    line=call.lineno, in_conditional=in_conditional, in_loop=in_loop
                 )
-            )
+                target, confidence, candidates = self._resolve(call.func, context)
+                found.append(
+                    ResolvedCall(
+                        caller=caller,
+                        target=target,
+                        confidence=confidence,
+                        site=site,
+                        candidates=candidates,
+                    )
+                )
+        except RecursionError:
+            # This one function's expression tree is too deep to walk, but
+            # pass 1 already accepted the file - it must not vanish silently.
+            # Only this function is lost; every other function in the module,
+            # and every other module, still resolves normally.
+            if self.skipped is not None:
+                self.skipped.append(
+                    SkippedFile(
+                        path=str(self.table.modules[module_id].path),
+                        reason=f"recursion limit exceeded during call resolution in {caller}",
+                    )
+                )
+            return
+        self.calls.extend(found)
 
     def _bind_locals(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef, context: _Context

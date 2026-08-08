@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from codecards.extract.calls import resolve_calls, to_edges
+from codecards.extract.discovery import SkippedFile
 from codecards.extract.symbols import build_symbol_table
 from codecards.graph.model import Confidence
 
@@ -322,3 +323,124 @@ def test_recursion_error_during_resolution_does_not_abort_the_run(tmp_path):
     assert "deep" in table.modules  # pass 1 accepted it - the bug is pass 2's
     calls = resolve_calls(table)
     assert any(c.caller == "ok.b" and c.target == "ok.a" for c in calls)
+
+
+# -- fix round 2 -------------------------------------------------------------
+#
+# Two Important defects were introduced BY fix round 1 itself (not present in
+# the original original skeleton):
+#
+# 1. The rewrite of _iter_calls into per-field-aware _iter_stmt/_iter_expr only
+#    recursed into children typed ast.expr or ast.stmt. ast.arguments (where a
+#    lambda's default-value expressions live) is neither, so calls inside a
+#    lambda default became silently unreachable - the old blanket recursion
+#    reached them, the new explicit enumeration did not.
+# 2. run() widened its except to (SyntaxError, RecursionError) around the
+#    whole per-module walk. For SyntaxError that mirrors pass 1 correctly, but
+#    a module that trips RecursionError during resolution IS in table.modules
+#    (pass 1 accepted it) - its calls vanished with no record anywhere in the
+#    public API, unlike build_symbol_table's SkippedFile list.
+
+
+def test_lambda_default_value_call_is_reached(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def missing_call():\n    pass\n"
+        "\n"
+        "def go():\n"
+        "    f = lambda x=missing_call(): x\n"
+        "    return f\n"
+    )})
+    assert result[("m.go", "m.missing_call")] is Confidence.RESOLVED
+
+
+def test_construct_heavy_corpus_yields_exact_call_count(tmp_path):
+    # Exercises: lambda defaults, keyword arguments, f-strings, starred args,
+    # slices, await, yield from, decorators on a nested def, and comprehension
+    # ifs, in one source file. This is a differential guard: it was verified
+    # to return 11 both against the original original skeleton (commit cc07d88)
+    # and against the current implementation, and 10 (missing the lambda
+    # default call) against fix round 1 (commit bcaab12) - so a future change
+    # that silently drops a construct's calls again will move this number.
+    corpus = (
+        "def missing_call():\n    pass\n"
+        "\n"
+        "def kwcall():\n    pass\n"
+        "\n"
+        "def fcall():\n    pass\n"
+        "\n"
+        "def starred_call():\n    pass\n"
+        "\n"
+        "def start_call():\n    pass\n"
+        "\n"
+        "def end_call():\n    pass\n"
+        "\n"
+        "def async_call():\n    pass\n"
+        "\n"
+        "def gen_call():\n    pass\n"
+        "\n"
+        "def if_call(x):\n    pass\n"
+        "\n"
+        "def deco_call():\n    pass\n"
+        "\n"
+        "def sink(*a, **kw):\n    pass\n"
+        "\n"
+        "async def go(xs):\n"
+        "    lam = lambda x=missing_call(): x\n"
+        "    sink(x=kwcall())\n"
+        "    s = f'{fcall()}'\n"
+        "    sink(*starred_call())\n"
+        "    z = [1, 2, 3][start_call():end_call()]\n"
+        "    await async_call()\n"
+        "    def gen():\n"
+        "        yield from gen_call()\n"
+        "    @deco_call()\n"
+        "    def inner():\n"
+        "        pass\n"
+        "    return [x for x in xs if if_call(x)]\n"
+    )
+    (tmp_path / "m.py").write_text(corpus)
+    table, skipped = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    assert skipped == []
+    calls = resolve_calls(table)
+    assert len(calls) == 11
+
+
+def test_recursion_error_in_one_function_does_not_lose_its_module(tmp_path):
+    n = 2000
+    chain = "1" + " + f()" * n
+    (tmp_path / "ok.py").write_text("def a():\n    pass\n\ndef b():\n    a()\n")
+    (tmp_path / "deep.py").write_text(
+        "def other():\n    pass\n"
+        "\n"
+        f"def go():\n    x = {chain}\n"
+        "\n"
+        "def also_fine():\n    other()\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "ok.py", tmp_path / "deep.py"], [tmp_path])
+    skipped: list[SkippedFile] = []
+    calls = resolve_calls(table, skipped)
+
+    # Only "deep.go" is lost - every other function, in the same module and
+    # in every other module, still resolves normally.
+    assert any(c.caller == "ok.b" and c.target == "ok.a" for c in calls)
+    assert any(c.caller == "deep.also_fine" and c.target == "deep.other" for c in calls)
+    assert not any(c.caller == "deep.go" for c in calls)
+
+    # And the failure is reported, not swallowed: exactly one SkippedFile,
+    # naming the offending module and function.
+    assert len(skipped) == 1
+    assert skipped[0].path == str(tmp_path / "deep.py")
+    assert "deep.go" in skipped[0].reason
+
+
+def test_recursion_error_with_no_skipped_list_still_does_not_abort(tmp_path):
+    # The out-parameter is optional - omitting it must not change behaviour
+    # for every other function, only drop the reporting.
+    n = 2000
+    chain = "1" + " + f()" * n
+    (tmp_path / "ok.py").write_text("def a():\n    pass\n\ndef b():\n    a()\n")
+    (tmp_path / "deep.py").write_text(f"def go():\n    x = {chain}\n")
+    table, _ = build_symbol_table([tmp_path / "ok.py", tmp_path / "deep.py"], [tmp_path])
+    calls = resolve_calls(table)
+    assert any(c.caller == "ok.b" and c.target == "ok.a" for c in calls)
+    assert not any(c.caller == "deep.go" for c in calls)
