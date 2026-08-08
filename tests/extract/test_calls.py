@@ -687,3 +687,83 @@ def test_reassignment_to_an_unknown_value_drops_the_type(tmp_path):
         "    h.send()\n"
     )})
     assert ("m.go", "m.H.send") not in result
+
+
+# -- a separate change fix round 1: every rebinding form must drop a stale type --------
+#
+# context.types was cleared only on Assign/AnnAssign. Every other rebinding
+# form (augmented assignment, walrus, for-target, with-as target) left a
+# stale inferred type behind, so a later call resolved at the RESOLVED tier
+# against a class the name no longer named - a confident, wrong edge. The
+# fix routes the discard off the same Name/Store,Del walk that already
+# builds context.shadowed and context.reassigned, rather than enumerating
+# these forms separately.
+
+
+def test_for_target_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(xs):\n"
+        "    h = H()\n"
+        "    for h in xs:\n"
+        "        pass\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_with_as_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    with open('f') as h:\n"
+        "        pass\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_walrus_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(xs):\n"
+        "    h = H()\n"
+        "    if (h := xs):\n"
+        "        pass\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_augmented_assignment_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    h += 1\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_an_unrelated_statement_between_bindings_does_not_clear_the_type(tmp_path):
+    # Proves the fix did not over-clear: an unrelated assignment to a
+    # DIFFERENT name in between must not disturb h's inferred type.
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    y = 5\n"
+        "    h.send()\n"
+    )})
+    assert result[("m.go", "m.H.send")] is Confidence.RESOLVED

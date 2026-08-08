@@ -366,6 +366,16 @@ class _Resolver:
             if isinstance(inner, _FUNCTION_NODES):
                 context.names[inner.name] = f"{context.caller}.{inner.name}"
 
+        # Annotated parameters: `def go(h: H)` tells us the type of `h` before
+        # the body runs at all, so this is set ahead of the body walk below
+        # rather than interleaved with it - a parameter's binding always
+        # precedes every statement in its own body in source order.
+        for arg in every:
+            if arg.annotation is not None:
+                class_qualname = self._resolve_annotation(arg.annotation, context)
+                if class_qualname:
+                    context.types[arg.arg] = class_qualname
+
         # Everything else that binds a name anywhere in this function's own
         # scope (not crossing into a nested def/class) shadows module scope:
         # assignment, augmented/annotated assignment, for-targets, walrus,
@@ -382,44 +392,51 @@ class _Resolver:
         # self/cls - those are always parameters (always in context.shadowed
         # for that reason alone) but only sometimes actually reassigned to
         # something other than the instance/class the method was called on.
+        #
+        # context.types is threaded through this same walk (not a separate
+        # pass) because it is order-sensitive: the last binding of a name,
+        # in source order, decides its type. Only two statement shapes are
+        # inferable - an Assign with a constructor call on the right, or an
+        # AnnAssign with a resolvable class annotation - and those branches
+        # mark their target Name node in `inferred_targets` so the generic
+        # Name/Store branch below (reached moments later, since it is that
+        # same target node) does not immediately undo what was just
+        # computed. Every OTHER way of rebinding a name that reaches the
+        # generic Name/Store branch - augmented assignment, walrus, a
+        # for-target, a with-as target, tuple/starred unpacking, del - is
+        # not in `inferred_targets`, so it unconditionally drops any type
+        # inferred for that name. Failing closed here is deliberate: an
+        # unresolved call costs nothing, a confidently wrong one costs
+        # trust in every edge on the graph.
+        inferred_targets: set[int] = set()
         for descendant in _iter_own_scope(node.body):
             if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
                 context.shadowed.add(descendant.id)
                 context.reassigned.add(descendant.id)
+                if id(descendant) not in inferred_targets:
+                    context.types.pop(descendant.id, None)
             elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
                 context.shadowed.add(descendant.name)
                 context.reassigned.add(descendant.name)
+                context.types.pop(descendant.name, None)
             elif (
                 isinstance(descendant, (*_FUNCTION_NODES, ast.ClassDef))
                 and id(descendant) not in top_level_defs
             ):
                 context.shadowed.add(descendant.name)
-
-        # Annotated parameters: `def go(h: H)` tells us the type of `h`.
-        for arg in every:
-            if arg.annotation is not None:
-                class_qualname = self._resolve_annotation(arg.annotation, context)
+            elif isinstance(descendant, ast.AnnAssign) and isinstance(descendant.target, ast.Name):
+                class_qualname = self._resolve_annotation(descendant.annotation, context)
+                inferred_targets.add(id(descendant.target))
                 if class_qualname:
-                    context.types[arg.arg] = class_qualname
-
-        # Local bindings, walked in source order (via _iter_own_scope, which
-        # also keeps this from reaching into a nested def/class's own
-        # bindings) so that the last one wins.
-        for statement in _iter_own_scope(node.body):
-            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
-                class_qualname = self._resolve_annotation(statement.annotation, context)
-                name = statement.target.id
-                context.shadowed.add(name)
-                if class_qualname:
-                    context.types[name] = class_qualname
+                    context.types[descendant.target.id] = class_qualname
                 else:
-                    context.types.pop(name, None)
-            elif isinstance(statement, ast.Assign):
-                class_qualname = self._constructed_class(statement.value, context)
-                for target in statement.targets:
+                    context.types.pop(descendant.target.id, None)
+            elif isinstance(descendant, ast.Assign):
+                class_qualname = self._constructed_class(descendant.value, context)
+                for target in descendant.targets:
                     if not isinstance(target, ast.Name):
                         continue
-                    context.shadowed.add(target.id)
+                    inferred_targets.add(id(target))
                     if class_qualname:
                         context.types[target.id] = class_qualname
                     else:
