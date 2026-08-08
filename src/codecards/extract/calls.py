@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import builtins
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from typing import Iterator
 
@@ -366,16 +367,6 @@ class _Resolver:
             if isinstance(inner, _FUNCTION_NODES):
                 context.names[inner.name] = f"{context.caller}.{inner.name}"
 
-        # Annotated parameters: `def go(h: H)` tells us the type of `h` before
-        # the body runs at all, so this is set ahead of the body walk below
-        # rather than interleaved with it - a parameter's binding always
-        # precedes every statement in its own body in source order.
-        for arg in every:
-            if arg.annotation is not None:
-                class_qualname = self._resolve_annotation(arg.annotation, context)
-                if class_qualname:
-                    context.types[arg.arg] = class_qualname
-
         # Everything else that binds a name anywhere in this function's own
         # scope (not crossing into a nested def/class) shadows module scope:
         # assignment, augmented/annotated assignment, for-targets, walrus,
@@ -392,55 +383,108 @@ class _Resolver:
         # self/cls - those are always parameters (always in context.shadowed
         # for that reason alone) but only sometimes actually reassigned to
         # something other than the instance/class the method was called on.
-        #
-        # context.types is threaded through this same walk (not a separate
-        # pass) because it is order-sensitive: the last binding of a name,
-        # in source order, decides its type. Only two statement shapes are
-        # inferable - an Assign with a constructor call on the right, or an
-        # AnnAssign with a resolvable class annotation - and those branches
-        # mark their target Name node in `inferred_targets` so the generic
-        # Name/Store branch below (reached moments later, since it is that
-        # same target node) does not immediately undo what was just
-        # computed. Every OTHER way of rebinding a name that reaches the
-        # generic Name/Store branch - augmented assignment, walrus, a
-        # for-target, a with-as target, tuple/starred unpacking, del - is
-        # not in `inferred_targets`, so it unconditionally drops any type
-        # inferred for that name. Failing closed here is deliberate: an
-        # unresolved call costs nothing, a confidently wrong one costs
-        # trust in every edge on the graph.
-        inferred_targets: set[int] = set()
         for descendant in _iter_own_scope(node.body):
             if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
                 context.shadowed.add(descendant.id)
                 context.reassigned.add(descendant.id)
-                if id(descendant) not in inferred_targets:
-                    context.types.pop(descendant.id, None)
             elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
                 context.shadowed.add(descendant.name)
                 context.reassigned.add(descendant.name)
-                context.types.pop(descendant.name, None)
             elif (
                 isinstance(descendant, (*_FUNCTION_NODES, ast.ClassDef))
                 and id(descendant) not in top_level_defs
             ):
                 context.shadowed.add(descendant.name)
-            elif isinstance(descendant, ast.AnnAssign) and isinstance(descendant.target, ast.Name):
-                class_qualname = self._resolve_annotation(descendant.annotation, context)
-                inferred_targets.add(id(descendant.target))
+
+        context.types.update(self._infer_local_types(node, context))
+
+    def _infer_local_types(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, context: _Context
+    ) -> dict[str, str]:
+        """Infer local variable types from annotations and constructor calls.
+
+        Deliberately conservative. The set of ways a name can be TYPED is
+        small and closed: an annotated parameter, an AnnAssign with a
+        resolvable class annotation, or an Assign whose value is a
+        constructor call. The set of ways a name can be REBOUND, by
+        contrast, is open-ended - this project has repeatedly under-
+        enumerated it (augmented assignment, walrus, for/with targets,
+        tuple/starred unpacking, del, match capture, an in-function
+        `import ... as`, `nonlocal` rebinding from a closure, a nested
+        def/lambda's own parameter of the same name...). So this does not
+        try to prove a candidate type was destroyed; it requires proof it
+        was never disturbed: a candidate is kept only when its name is
+        bound EXACTLY ONCE across the entire function - including nested
+        scopes - and that one binding is the inferable one. Any second
+        binding of any kind, anywhere, drops it. A binding form this
+        function fails to recognise therefore costs a missing type, never
+        a wrong one. Do not "optimise" the single-binding rule away - that
+        is exactly what keeps an unenumerated rebinding form from
+        producing a confidently wrong edge.
+        """
+        # How many times each name is bound anywhere in this function,
+        # including nested defs/lambdas/comprehensions/match blocks - unlike
+        # _iter_own_scope, ast.walk deliberately does NOT stop at those
+        # boundaries, because a nested scope's own parameter or rebinding of
+        # the same name is exactly the kind of thing that must knock a
+        # candidate out.
+        binding_counts: Counter[str] = Counter()
+        for descendant in ast.walk(node):
+            if descendant is node:
+                continue  # the function's own name is not one of its locals
+            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
+                binding_counts[descendant.id] += 1
+            elif isinstance(descendant, ast.arg):
+                binding_counts[descendant.arg] += 1
+            elif isinstance(descendant, ast.alias):
+                binding_counts[descendant.asname or descendant.name.split(".")[0]] += 1
+            elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
+                binding_counts[descendant.name] += 1
+            elif isinstance(descendant, ast.MatchAs) and descendant.name:
+                binding_counts[descendant.name] += 1
+            elif isinstance(descendant, ast.MatchStar) and descendant.name:
+                binding_counts[descendant.name] += 1
+            elif isinstance(descendant, ast.MatchMapping) and descendant.rest:
+                binding_counts[descendant.rest] += 1
+            elif isinstance(descendant, (ast.Global, ast.Nonlocal)):
+                for name in descendant.names:
+                    binding_counts[name] += 1
+            elif isinstance(descendant, (*_FUNCTION_NODES, ast.ClassDef)):
+                binding_counts[descendant.name] += 1
+
+        # The small, closed set of statically inferable bindings, restricted
+        # to this function's own scope (not a nested def/class's statements -
+        # those are a different variable even if it shares the name).
+        candidates: dict[str, str] = {}
+        args = node.args
+        every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+        if args.vararg:
+            every.append(args.vararg)
+        if args.kwarg:
+            every.append(args.kwarg)
+        for arg in every:
+            if arg.annotation is not None:
+                class_qualname = self._resolve_annotation(arg.annotation, context)
                 if class_qualname:
-                    context.types[descendant.target.id] = class_qualname
-                else:
-                    context.types.pop(descendant.target.id, None)
-            elif isinstance(descendant, ast.Assign):
-                class_qualname = self._constructed_class(descendant.value, context)
-                for target in descendant.targets:
-                    if not isinstance(target, ast.Name):
-                        continue
-                    inferred_targets.add(id(target))
-                    if class_qualname:
-                        context.types[target.id] = class_qualname
-                    else:
-                        context.types.pop(target.id, None)
+                    candidates[arg.arg] = class_qualname
+
+        for statement in _iter_own_scope(node.body):
+            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+                class_qualname = self._resolve_annotation(statement.annotation, context)
+                if class_qualname:
+                    candidates[statement.target.id] = class_qualname
+            elif isinstance(statement, ast.Assign):
+                class_qualname = self._constructed_class(statement.value, context)
+                if class_qualname:
+                    for target in statement.targets:
+                        if isinstance(target, ast.Name):
+                            candidates[target.id] = class_qualname
+
+        return {
+            name: class_qualname
+            for name, class_qualname in candidates.items()
+            if binding_counts[name] == 1
+        }
 
     def _resolve_annotation(self, node: ast.expr, context: _Context) -> str | None:
         """Map an annotation expression onto a class qualname, if it names one."""

@@ -767,3 +767,100 @@ def test_an_unrelated_statement_between_bindings_does_not_clear_the_type(tmp_pat
         "    h.send()\n"
     )})
     assert result[("m.go", "m.H.send")] is Confidence.RESOLVED
+
+
+# -- a separate change fix round 2: single-binding-count, not an enumeration of rebinds -
+#
+# Fix round 1 tried to prove a candidate type had been destroyed, by
+# enumerating rebinding forms that reach a generic Name/Store,Del node. That
+# enumeration was itself incomplete: match capture, an in-function
+# `import ... as`, `nonlocal` rebinding from a nested closure, and a nested
+# lambda's own parameter of the same name all bind through a plain string
+# field or a different node type entirely, never reaching that branch, and
+# all four produced a confident, wrong RESOLVED edge. The fix inverts the
+# polarity: a candidate type now survives only when its name is bound
+# EXACTLY ONCE across the whole function (including nested scopes), so an
+# unenumerated rebinding form costs a missing type, never a wrong one.
+
+
+def test_tuple_unpacking_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(xs):\n"
+        "    h = H()\n"
+        "    h, k = xs\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_del_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    del h\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_match_capture_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(x):\n"
+        "    h = H()\n"
+        "    match x:\n"
+        "        case str() as h:\n"
+        "            pass\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_in_function_import_reassignment_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    import os as h\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_nonlocal_rebinding_from_a_closure_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "class G:\n    pass\n"
+        "\n"
+        "def outer():\n"
+        "    h = H()\n"
+        "    def inner():\n"
+        "        nonlocal h\n"
+        "        h = G()\n"
+        "    inner()\n"
+        "    h.send()\n"
+    )})
+    assert ("m.outer", "m.H.send") not in result
+    assert result[("m.outer", None)] is Confidence.UNRESOLVED
+
+
+def test_lambda_parameter_shadowing_a_typed_name_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    f = lambda h: h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
