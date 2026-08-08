@@ -80,13 +80,20 @@ class SymbolTable:
             module_id = module_id.rsplit(".", 1)[0] if "." in module_id else ""
         if not module_id:
             return None
+        # Check same-module candidate first (it takes priority)
+        candidate = f"{module_id}.{base}"
+        if candidate in self.definitions:
+            return candidate
+        # If no same-module definition, try aliases
         head, _, rest = base.partition(".")
         aliases = self.modules[module_id].aliases
         if head in aliases:
             target = aliases[head]
-            return f"{target}.{rest}" if rest else target
-        candidate = f"{module_id}.{base}"
-        return candidate if candidate in self.definitions else None
+            full_target = f"{target}.{rest}" if rest else target
+            # Only return if the target actually exists in definitions
+            if full_target in self.definitions:
+                return full_target
+        return None
 
 
 def module_id_for(path: Path, root: Path) -> str:
@@ -158,12 +165,13 @@ def build_symbol_table(
         rel_path = path.resolve().relative_to(Path(root).resolve()).as_posix()
         info = ModuleInfo(module_id=module_id, path=path, rel_path=rel_path, source=source)
         table.modules[module_id] = info
-        if path.name == "__init__.py":
+        is_package = path.name == "__init__.py"
+        if is_package:
             table.packages.add(module_id)
         for i in range(1, module_id.count(".") + 1):
             table.packages.add(module_id.rsplit(".", i)[0])
 
-        _collect_aliases(tree, module_id, info)
+        _collect_aliases(tree, module_id, info, is_package)
         info.main_block_calls = _main_block_calls(tree)
         _collect_definitions(tree, module_id, rel_path, table)
 
@@ -173,9 +181,10 @@ def build_symbol_table(
     return table, skipped
 
 
-def _collect_aliases(tree: ast.Module, module_id: str, info: ModuleInfo) -> None:
+def _collect_aliases(tree: ast.Module, module_id: str, info: ModuleInfo, is_package: bool = False) -> None:
     package = module_id.rsplit(".", 1)[0] if "." in module_id else ""
-    for node in ast.walk(tree):
+    # Collect module-level imports first (they win)
+    for node in tree.body:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 local = alias.asname or alias.name.split(".")[0]
@@ -185,14 +194,63 @@ def _collect_aliases(tree: ast.Module, module_id: str, info: ModuleInfo) -> None
             base = node.module or ""
             if node.level:
                 parts = module_id.split(".")
-                # level 1 means the current package
-                trimmed = parts[: max(0, len(parts) - node.level)]
+                # For a package, module_id already IS the package, so trim (level - 1)
+                # For a module, trim level
+                adjustment = node.level - 1 if is_package else node.level
+                trimmed = parts[: max(0, len(parts) - adjustment)]
                 base = ".".join([p for p in trimmed if p] + ([base] if base else []))
+                if not base:
+                    # Over-deep relative import that goes past the root - drop this alias
+                    base = None
             elif not base:
                 base = package
-            for alias in node.names:
-                local = alias.asname or alias.name
-                info.aliases[local] = f"{base}.{alias.name}" if base else alias.name
+            if base is not None:
+                for alias in node.names:
+                    local = alias.asname or alias.name
+                    info.aliases[local] = f"{base}.{alias.name}" if base else alias.name
+
+    # Collect nested imports only with setdefault (don't clobber module-level)
+    def visit_nested(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    local = alias.asname or alias.name.split(".")[0]
+                    target = alias.name if alias.asname else alias.name.split(".")[0]
+                    info.aliases.setdefault(local, target)
+            elif isinstance(node, ast.ImportFrom):
+                base = node.module or ""
+                if node.level:
+                    parts = module_id.split(".")
+                    adjustment = node.level - 1 if is_package else node.level
+                    trimmed = parts[: max(0, len(parts) - adjustment)]
+                    base = ".".join([p for p in trimmed if p] + ([base] if base else []))
+                    if not base:
+                        base = None
+                elif not base:
+                    base = package
+                if base is not None:
+                    for alias in node.names:
+                        local = alias.asname or alias.name
+                        info.aliases.setdefault(local, f"{base}.{alias.name}" if base else alias.name)
+            # Recurse into nested blocks
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.If, ast.With, ast.Try)):
+                if isinstance(node, ast.ClassDef):
+                    visit_nested(node.body)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    visit_nested(node.body)
+                elif isinstance(node, ast.If):
+                    visit_nested(node.body)
+                    visit_nested(node.orelse)
+                elif isinstance(node, ast.With):
+                    visit_nested(node.body)
+                elif isinstance(node, ast.Try):
+                    visit_nested(node.body)
+                    for handler in node.handlers:
+                        visit_nested(handler.body)
+                    visit_nested(node.orelse)
+                    visit_nested(node.finalbody)
+
+    visit_nested(tree.body)
 
 
 def _main_block_calls(tree: ast.Module) -> tuple[str, ...]:
@@ -205,7 +263,14 @@ def _main_block_calls(tree: ast.Module) -> tuple[str, ...]:
             isinstance(test, ast.Compare)
             and isinstance(test.left, ast.Name)
             and test.left.id == "__name__"
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Eq)
+            and len(test.comparators) == 1
         ):
+            continue
+        # Check that the comparator is the string "__main__"
+        comparator = test.comparators[0]
+        if not (isinstance(comparator, ast.Constant) and comparator.value == "__main__"):
             continue
         for inner in ast.walk(node):
             if isinstance(inner, ast.Call):

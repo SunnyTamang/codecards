@@ -136,3 +136,92 @@ def test_is_internal_distinguishes_project_from_stdlib(tmp_path):
     assert table.is_internal("app.util.parse") is True
     assert table.is_internal("app.util") is True
     assert table.is_internal("os.path.join") is False
+
+
+def test_relative_imports_from_package_init(tmp_path):
+    """Package __init__.py can use relative imports like from .util and from . import sibling"""
+    table, _ = build(tmp_path, {
+        "app/__init__.py": "from .util import parse\nfrom . import sub\n",
+        "app/util.py": "def parse():\n    pass\n",
+        "app/sub/__init__.py": "",
+    })
+    aliases = table.modules["app"].aliases
+    assert aliases["parse"] == "app.util.parse"
+    assert aliases["sub"] == "app.sub"
+
+
+def test_relative_imports_from_nested_package_init(tmp_path):
+    """Nested package __init__.py can use relative imports"""
+    table, _ = build(tmp_path, {
+        "app/__init__.py": "",
+        "app/sub/__init__.py": "from ..util import parse\n",
+        "app/util.py": "def parse():\n    pass\n",
+    })
+    aliases = table.modules["app.sub"].aliases
+    assert aliases["parse"] == "app.util.parse"
+
+
+def test_module_level_imports_win_over_type_checking(tmp_path):
+    """Module-level imports should take precedence over TYPE_CHECKING imports"""
+    table, _ = build(tmp_path, {
+        "app/__init__.py": "",
+        "app/real.py": "class Base:\n    pass\n",
+        "app/typeonly.py": "class Base:\n    pass\n",
+        "app/cli.py": (
+            "from app.real import Base\n"
+            "from typing import TYPE_CHECKING\n"
+            "if TYPE_CHECKING:\n"
+            "    from app.typeonly import Base\n"
+        ),
+    })
+    aliases = table.modules["app.cli"].aliases
+    # Module-level import should win
+    assert aliases["Base"] == "app.real.Base"
+
+
+def test_same_module_class_not_clobbered_by_import(tmp_path):
+    """If a module imports a name and defines the same name, mro() should find the same-module class"""
+    table, _ = build(tmp_path, {
+        "app/__init__.py": "",
+        "app/other.py": "class Base:\n    def go(self):\n        pass\n",
+        "app/two.py": (
+            "from app.other import Base\n"
+            "\n"
+            "class Base:\n"
+            "    pass\n"
+            "\n"
+            "class Impl(Base):\n"
+            "    pass\n"
+        ),
+    })
+    # MRO should find the same-module Base, not the imported one
+    assert table.mro("app.two.Impl") == ["app.two.Impl", "app.two.Base"]
+
+
+def test_main_block_not_captured_with_not_equal(tmp_path):
+    """if __name__ != '__main__': should not capture calls"""
+    table, _ = build(tmp_path, {"m.py": (
+        "def go():\n    pass\n"
+        "\n"
+        "if __name__ != '__main__':\n"
+        "    go()\n"
+    )})
+    assert table.modules["m"].main_block_calls == ()
+
+
+def test_non_utf8_file_is_skipped(tmp_path):
+    """A file with invalid UTF-8 encoding should be recorded as SkippedFile"""
+    table, skipped = build(tmp_path, {
+        "good.py": "def a():\n    pass\n",
+    })
+    # Write invalid UTF-8 bytes
+    invalid_path = tmp_path / "bad.py"
+    invalid_path.write_bytes(b"\xff\xfe\x00")
+
+    # Rebuild to include the invalid file
+    paths, roots = project(tmp_path, {})
+    table, skipped = build_symbol_table(paths, roots)
+
+    assert "good.a" in table.definitions
+    assert len(skipped) == 1
+    assert "encoding error" in skipped[0].reason
