@@ -246,19 +246,26 @@ def _iter_any(
 
 
 def _iter_own_scope(body: list[ast.stmt]) -> Iterator[ast.AST]:
-    """Yield every node reachable in this function's own scope.
+    """Yield every node reachable in this function's own scope, in source order.
 
     Does not cross into a nested function or class body - but does yield the
     def/class node itself, so a caller can see its name without seeing what is
     local to it.
+
+    Pre-order (parent before children, siblings left-to-right), via an
+    explicit stack rather than Python recursion: a caller (the type-inference
+    walk in _bind_locals) depends on this being genuine source order so that
+    "the last binding wins" is correct, and other callers walk expression
+    trees deep enough to blow the recursion limit if this recursed instead.
+    Children are pushed in reverse so the leftmost is popped first.
     """
-    stack: list[ast.AST] = list(body)
+    stack: list[ast.AST] = list(reversed(body))
     while stack:
         current = stack.pop()
         yield current
         if isinstance(current, (*_FUNCTION_NODES, ast.ClassDef)):
             continue
-        stack.extend(ast.iter_child_nodes(current))
+        stack.extend(reversed(list(ast.iter_child_nodes(current))))
 
 
 class _Resolver:
@@ -388,6 +395,72 @@ class _Resolver:
             ):
                 context.shadowed.add(descendant.name)
 
+        # Annotated parameters: `def go(h: H)` tells us the type of `h`.
+        for arg in every:
+            if arg.annotation is not None:
+                class_qualname = self._resolve_annotation(arg.annotation, context)
+                if class_qualname:
+                    context.types[arg.arg] = class_qualname
+
+        # Local bindings, walked in source order (via _iter_own_scope, which
+        # also keeps this from reaching into a nested def/class's own
+        # bindings) so that the last one wins.
+        for statement in _iter_own_scope(node.body):
+            if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+                class_qualname = self._resolve_annotation(statement.annotation, context)
+                name = statement.target.id
+                context.shadowed.add(name)
+                if class_qualname:
+                    context.types[name] = class_qualname
+                else:
+                    context.types.pop(name, None)
+            elif isinstance(statement, ast.Assign):
+                class_qualname = self._constructed_class(statement.value, context)
+                for target in statement.targets:
+                    if not isinstance(target, ast.Name):
+                        continue
+                    context.shadowed.add(target.id)
+                    if class_qualname:
+                        context.types[target.id] = class_qualname
+                    else:
+                        context.types.pop(target.id, None)
+
+    def _resolve_annotation(self, node: ast.expr, context: _Context) -> str | None:
+        """Map an annotation expression onto a class qualname, if it names one."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                node = ast.parse(node.value, mode="eval").body
+            except SyntaxError:
+                return None
+        dotted = self._dotted_receiver(node)
+        if dotted is None:
+            return None
+        return self._as_class(dotted, context)
+
+    def _constructed_class(self, node: ast.expr, context: _Context) -> str | None:
+        """`H()` on the right-hand side of an assignment tells us the type."""
+        if not isinstance(node, ast.Call):
+            return None
+        dotted = self._dotted_receiver(node.func)
+        if dotted is None:
+            return None
+        return self._as_class(dotted, context)
+
+    def _as_class(self, dotted: str, context: _Context) -> str | None:
+        aliases = self.table.modules[context.module_id].aliases
+        head, _, rest = dotted.partition(".")
+        candidates = []
+        if head in aliases:
+            base = aliases[head]
+            candidates.append(f"{base}.{rest}" if rest else base)
+        candidates.append(f"{context.module_id}.{dotted}")
+        candidates.append(dotted)
+        for candidate in candidates:
+            definition = self.table.definitions.get(candidate)
+            if definition is not None and definition.kind is NodeKind.CLASS:
+                return candidate
+        return None
+
     # -- resolution strategies -------------------------------------------
 
     def _resolve(
@@ -438,6 +511,15 @@ class _Resolver:
             and context.class_qualname
         ):
             for base in self.table.mro(context.class_qualname):
+                candidate = f"{base}.{attribute}"
+                if candidate in self.table.definitions:
+                    return self._finalise(candidate)
+            return None, Confidence.UNRESOLVED, ()
+
+        # A receiver whose class we know from an annotation or a constructor.
+        if isinstance(node.value, ast.Name) and node.value.id in context.types:
+            owner = context.types[node.value.id]
+            for base in self.table.mro(owner):
                 candidate = f"{base}.{attribute}"
                 if candidate in self.table.definitions:
                     return self._finalise(candidate)

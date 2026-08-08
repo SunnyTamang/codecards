@@ -610,3 +610,80 @@ def test_call_through_a_same_module_class_receiver_resolves(tmp_path):
         "def go():\n    H.make(H())\n"
     )})
     assert result[("m.go", "m.H.make")] is Confidence.RESOLVED
+
+
+# -- a separate change: type-informed attribute calls -----------------------------------
+
+
+def test_annotated_parameter_resolves_the_method(tmp_path):
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/mail.py": "class H:\n    def send(self):\n        pass\n",
+        "app/cli.py": (
+            "from app.mail import H\n"
+            "\n"
+            "def go(handler: H):\n"
+            "    handler.send()\n"
+        ),
+    })
+    assert result[("app.cli.go", "app.mail.H.send")] is Confidence.RESOLVED
+
+
+def test_string_annotation_resolves(tmp_path):
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/mail.py": "class H:\n    def send(self):\n        pass\n",
+        "app/cli.py": (
+            "from app.mail import H\n"
+            "\n"
+            "def go(handler: 'H'):\n"
+            "    handler.send()\n"
+        ),
+    })
+    assert result[("app.cli.go", "app.mail.H.send")] is Confidence.RESOLVED
+
+
+def test_local_constructor_assignment_resolves(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go():\n"
+        "    h = H()\n"
+        "    h.send()\n"
+    )})
+    assert result[("m.go", "m.H.send")] is Confidence.RESOLVED
+
+
+def test_annotated_local_variable_resolves(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(x):\n"
+        "    h: H = x\n"
+        "    h.send()\n"
+    )})
+    assert result[("m.go", "m.H.send")] is Confidence.RESOLVED
+
+
+def test_type_inference_resolves_through_the_mro(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class Base:\n    def send(self):\n        pass\n"
+        "\n"
+        "class H(Base):\n    pass\n"
+        "\n"
+        "def go(h: H):\n"
+        "    h.send()\n"
+    )})
+    assert result[("m.go", "m.Base.send")] is Confidence.RESOLVED
+
+
+def test_reassignment_to_an_unknown_value_drops_the_type(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        pass\n"
+        "\n"
+        "def go(other):\n"
+        "    h = H()\n"
+        "    h = other\n"
+        "    h.send()\n"
+    )})
+    assert ("m.go", "m.H.send") not in result
