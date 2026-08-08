@@ -444,3 +444,86 @@ def test_recursion_error_with_no_skipped_list_still_does_not_abort(tmp_path):
     calls = resolve_calls(table)
     assert any(c.caller == "ok.b" and c.target == "ok.a" for c in calls)
     assert not any(c.caller == "deep.go" for c in calls)
+
+
+# -- a separate change: attribute calls - modules and self/cls through the MRO ---------
+
+
+def test_call_through_a_module_alias_resolves(tmp_path):
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/util.py": "def parse():\n    pass\n",
+        "app/cli.py": "from app import util\n\ndef go():\n    util.parse()\n",
+    })
+    assert result[("app.cli.go", "app.util.parse")] is Confidence.RESOLVED
+
+
+def test_call_through_a_dotted_module_import_resolves(tmp_path):
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/util.py": "def parse():\n    pass\n",
+        "app/cli.py": "import app.util\n\ndef go():\n    app.util.parse()\n",
+    })
+    assert result[("app.cli.go", "app.util.parse")] is Confidence.RESOLVED
+
+
+def test_self_call_resolves_within_the_class(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n"
+        "    def send(self):\n        self.retry()\n"
+        "    def retry(self):\n        pass\n"
+    )})
+    assert result[("m.H.send", "m.H.retry")] is Confidence.RESOLVED
+
+
+def test_self_call_resolves_through_a_base_class(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class Base:\n    def retry(self):\n        pass\n"
+        "\n"
+        "class H(Base):\n    def send(self):\n        self.retry()\n"
+    )})
+    assert result[("m.H.send", "m.Base.retry")] is Confidence.RESOLVED
+
+
+def test_cls_call_resolves_like_self(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n"
+        "    @classmethod\n"
+        "    def make(cls):\n        cls.build()\n"
+        "    @classmethod\n"
+        "    def build(cls):\n        pass\n"
+    )})
+    assert result[("m.H.make", "m.H.build")] is Confidence.RESOLVED
+
+
+def test_super_call_resolves_to_the_base_method(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class Base:\n    def go(self):\n        pass\n"
+        "\n"
+        "class H(Base):\n    def go(self):\n        super().go()\n"
+    )})
+    assert result[("m.H.go", "m.Base.go")] is Confidence.RESOLVED
+
+
+def test_self_call_to_an_unknown_name_is_unresolved(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def send(self):\n        self.nope()\n"
+    )})
+    assert result[("m.H.send", None)] is Confidence.UNRESOLVED
+
+
+def test_external_module_attribute_call_is_external(tmp_path):
+    result = edges_for(tmp_path, {"m.py": "import json\n\ndef go():\n    json.dumps({})\n"})
+    assert result[("m.go", "json.dumps")] is Confidence.EXTERNAL
+
+
+def test_shadowed_receiver_does_not_resolve_through_a_module_alias(tmp_path):
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/util.py": "def parse():\n    pass\n",
+        "app/cli.py": (
+            "from app import util\n\n"
+            "def go():\n    util = object()\n    util.parse()\n"
+        ),
+    })
+    assert ("app.cli.go", "app.util.parse") not in result

@@ -384,7 +384,77 @@ class _Resolver:
     ) -> tuple[str | None, Confidence, tuple[str, ...]]:
         if isinstance(func, ast.Name):
             return self._resolve_name(func.id, context)
+        if isinstance(func, ast.Attribute):
+            return self._resolve_attribute(func, context)
         return None, Confidence.UNRESOLVED, ()
+
+    def _resolve_attribute(
+        self, node: ast.Attribute, context: _Context
+    ) -> tuple[str | None, Confidence, tuple[str, ...]]:
+        attribute = node.attr
+
+        # super().method()
+        if (
+            isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "super"
+            and context.class_qualname
+        ):
+            for base in self.table.mro(context.class_qualname)[1:]:
+                candidate = f"{base}.{attribute}"
+                if candidate in self.table.definitions:
+                    return self._finalise(candidate)
+            return None, Confidence.UNRESOLVED, ()
+
+        # self.method() / cls.method()
+        if (
+            isinstance(node.value, ast.Name)
+            and node.value.id in ("self", "cls")
+            and context.class_qualname
+        ):
+            for base in self.table.mro(context.class_qualname):
+                candidate = f"{base}.{attribute}"
+                if candidate in self.table.definitions:
+                    return self._finalise(candidate)
+            return None, Confidence.UNRESOLVED, ()
+
+        # module.function() - the receiver is a dotted path we can name
+        receiver = self._dotted_receiver(node.value)
+        if receiver is not None:
+            resolved_receiver = self._resolve_receiver(receiver, context)
+            if resolved_receiver is not None:
+                candidate = f"{resolved_receiver}.{attribute}"
+                if candidate in self.table.definitions:
+                    return self._finalise(candidate)
+                if not self.table.is_internal(candidate):
+                    return candidate, Confidence.EXTERNAL, ()
+
+        return None, Confidence.UNRESOLVED, ()
+
+    @staticmethod
+    def _dotted_receiver(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            head = _Resolver._dotted_receiver(node.value)
+            return f"{head}.{node.attr}" if head else None
+        return None
+
+    def _resolve_receiver(self, receiver: str, context: _Context) -> str | None:
+        """Map a dotted receiver expression onto a module or package id."""
+        if receiver.split(".")[0] in context.shadowed:
+            return None
+        aliases = self.table.modules[context.module_id].aliases
+        head, _, rest = receiver.partition(".")
+        if head in aliases:
+            base = aliases[head]
+            return f"{base}.{rest}" if rest else base
+        sibling = f"{context.module_id}.{receiver}"
+        if sibling in self.table.modules or sibling in self.table.definitions:
+            return sibling
+        if receiver in self.table.modules or receiver in self.table.packages:
+            return receiver
+        return None
 
     def _resolve_name(
         self, name: str, context: _Context
