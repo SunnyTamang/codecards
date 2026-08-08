@@ -32,7 +32,7 @@ def _matches(path: Path, root: Path, patterns: tuple[str, ...]) -> bool:
     except ValueError:
         rel = path.as_posix()
     return any(
-        fnmatch.fnmatch(rel, pattern) or fnmatch.fnmatch(path.name, pattern)
+        fnmatch.fnmatch(rel, pattern)
         for pattern in patterns
     )
 
@@ -104,7 +104,7 @@ def find_python_files(
         else:
             candidates = [
                 c for c in candidates
-                if not any(part in DEFAULT_EXCLUDE_DIRS for part in c.parts)
+                if not any(part in DEFAULT_EXCLUDE_DIRS for part in c.relative_to(root).parts)
             ]
 
         for candidate in candidates:

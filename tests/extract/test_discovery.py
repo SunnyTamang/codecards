@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 
 from codecards.extract.discovery import find_python_files
@@ -77,3 +76,26 @@ def test_gitignored_files_are_skipped_in_a_repo(tmp_path):
     subprocess.run(["git", "add", "-A"], cwd=tmp_path, check=True)
     files, _ = find_python_files([tmp_path])
     assert names(files, tmp_path) == ["a.py"]
+
+
+def test_ancestor_directory_named_like_noise_is_not_excluded(tmp_path):
+    """Ancestor directories in DEFAULT_EXCLUDE_DIRS should not exclude files."""
+    # Create repo inside a directory named "build" (which is in DEFAULT_EXCLUDE_DIRS)
+    repo_path = tmp_path / "build" / "repo"
+    repo_path.mkdir(parents=True, exist_ok=True)
+    write(repo_path, "a.py")
+    write(repo_path, "pkg/b.py")
+    subprocess.run(["git", "init", "-q"], cwd=repo_path, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo_path, check=True)
+    files, _ = find_python_files([repo_path])
+    # Both files should be found, not excluded by ancestor "build" directory
+    assert names(files, repo_path) == ["a.py", "pkg/b.py"]
+
+
+def test_exclude_must_not_match_same_named_files_elsewhere(tmp_path):
+    """Exclude patterns should only match relative paths, not bare filenames."""
+    write(tmp_path, "utils.py")
+    write(tmp_path, "pkg/utils.py")
+    files, _ = find_python_files([tmp_path], excludes=["utils.py"])
+    # Only top-level utils.py should be excluded
+    assert names(files, tmp_path) == ["pkg/utils.py"]
