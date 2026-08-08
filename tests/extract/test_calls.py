@@ -127,3 +127,198 @@ def test_to_edges_drops_calls_without_a_target(tmp_path):
     (tmp_path / "m.py").write_text("def go(f):\n    f()\n")
     table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
     assert to_edges(resolve_calls(table)) == []
+
+
+# -- regression tests added after fix-round review -------------------------
+
+
+def _call_count(tmp_path: Path, text: str) -> int:
+    (tmp_path / "m.py").write_text(text)
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    return len(resolve_calls(table))
+
+
+def test_triple_nested_call_yields_three_calls(tmp_path):
+    assert _call_count(tmp_path, "def go():\n    f(g(h()))\n") == 3
+
+
+def test_chained_attribute_call_yields_two_calls(tmp_path):
+    assert _call_count(tmp_path, "def go():\n    a().b()\n") == 2
+
+
+def test_double_call_yields_two_calls(tmp_path):
+    assert _call_count(tmp_path, "def go():\n    outer()()\n") == 2
+
+
+# -- Finding 1: only parameters were tracked as shadowed --------------------
+
+
+def test_assignment_shadows_a_module_level_name(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def parse():\n    pass\n"
+        "\n"
+        "def go():\n"
+        "    parse = 1\n"
+        "    parse()\n"
+    )})
+    assert ("m.go", "m.parse") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_with_as_shadows_a_module_level_name(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def parse():\n    pass\n"
+        "\n"
+        "def go():\n"
+        "    with open('f') as parse:\n"
+        "        pass\n"
+        "    parse()\n"
+    )})
+    assert ("m.go", "m.parse") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_except_as_shadows_a_module_level_name(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def parse():\n    pass\n"
+        "\n"
+        "def go():\n"
+        "    try:\n"
+        "        pass\n"
+        "    except Exception as parse:\n"
+        "        pass\n"
+        "    parse()\n"
+    )})
+    assert ("m.go", "m.parse") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_for_target_shadows_a_module_level_name(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def parse():\n    pass\n"
+        "\n"
+        "def go(xs):\n"
+        "    for parse in xs:\n"
+        "        pass\n"
+        "    parse()\n"
+    )})
+    assert ("m.go", "m.parse") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+def test_walrus_shadows_a_module_level_name(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def parse():\n    pass\n"
+        "\n"
+        "def go(xs):\n"
+        "    if (parse := xs):\n"
+        "        pass\n"
+        "    parse()\n"
+    )})
+    assert ("m.go", "m.parse") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+# -- Finding 2: a nested def inside a conditional is not bound --------------
+
+
+def test_nested_function_inside_a_conditional_is_unresolved(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "def helper():\n    pass\n"
+        "\n"
+        "def go(x):\n"
+        "    if x:\n"
+        "        def helper():\n            pass\n"
+        "    helper()\n"
+    )})
+    assert ("m.go", "m.helper") not in result
+    assert result[("m.go", None)] is Confidence.UNRESOLVED
+
+
+# -- Finding 3: conditional/loop flags were inherited by every descendant ---
+
+
+def test_if_test_expression_call_is_not_conditional(tmp_path):
+    (tmp_path / "m.py").write_text(
+        "def cond():\n    return True\n"
+        "\n"
+        "def go():\n"
+        "    if cond():\n"
+        "        pass\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    sites = [c.site for c in resolve_calls(table) if c.target == "m.cond"]
+    assert sites[0].in_conditional is False
+
+
+def test_finally_body_call_is_not_conditional(tmp_path):
+    (tmp_path / "m.py").write_text(
+        "def f():\n    pass\n"
+        "\n"
+        "def go():\n"
+        "    try:\n"
+        "        pass\n"
+        "    finally:\n"
+        "        f()\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    sites = [c.site for c in resolve_calls(table) if c.target == "m.f"]
+    assert sites[0].in_conditional is False
+
+
+def test_while_else_body_call_is_not_in_loop(tmp_path):
+    (tmp_path / "m.py").write_text(
+        "def e():\n    pass\n"
+        "\n"
+        "def go(x):\n"
+        "    while x:\n"
+        "        break\n"
+        "    else:\n"
+        "        e()\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    sites = [c.site for c in resolve_calls(table) if c.target == "m.e"]
+    assert sites[0].in_loop is False
+
+
+def test_for_iterable_call_is_not_in_loop(tmp_path):
+    (tmp_path / "m.py").write_text(
+        "def src():\n    return []\n"
+        "\n"
+        "def go():\n"
+        "    for x in src():\n"
+        "        pass\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    sites = [c.site for c in resolve_calls(table) if c.target == "m.src"]
+    assert sites[0].in_loop is False
+
+
+def test_comprehension_element_call_is_in_loop(tmp_path):
+    (tmp_path / "m.py").write_text(
+        "def item(x):\n    return x\n"
+        "\n"
+        "def go(xs):\n"
+        "    return [item(x) for x in xs]\n"
+    )
+    table, _ = build_symbol_table([tmp_path / "m.py"], [tmp_path])
+    sites = [c.site for c in resolve_calls(table) if c.target == "m.item"]
+    assert sites[0].in_loop is True
+
+
+# -- item 5: a pathological file cannot kill the whole run ------------------
+
+
+def test_recursion_error_during_resolution_does_not_abort_the_run(tmp_path):
+    # A long left-associated chain parses fine (unlike deeply nested parens or
+    # indentation, which the parser itself rejects), but walking it recursively
+    # can exceed Python's stack - this reproduces that without tripping pass 1.
+    n = 2000
+    chain = "1" + " + f()" * n
+    (tmp_path / "ok.py").write_text("def a():\n    pass\n\ndef b():\n    a()\n")
+    (tmp_path / "deep.py").write_text(f"def go():\n    x = {chain}\n")
+    table, skipped = build_symbol_table([tmp_path / "ok.py", tmp_path / "deep.py"], [tmp_path])
+    assert skipped == []
+    assert "deep" in table.modules  # pass 1 accepted it - the bug is pass 2's
+    calls = resolve_calls(table)
+    assert any(c.caller == "ok.b" and c.target == "ok.a" for c in calls)

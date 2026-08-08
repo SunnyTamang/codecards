@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import builtins
+import sys
 from dataclasses import dataclass
 from typing import Iterator
 
@@ -60,28 +61,153 @@ def to_edges(calls: list[ResolvedCall]) -> list[Edge]:
     ]
 
 
+#: ast.TryStar only exists on 3.11+; guard so this module still imports on the 3.10
+#: floor. Branching on sys.version_info (rather than hasattr) also lets pyright
+#: statically narrow isinstance(node, _TRY_NODES) to the right node type below.
+if sys.version_info >= (3, 11):
+    _TRY_NODES = (ast.Try, ast.TryStar)
+else:
+    _TRY_NODES = (ast.Try,)
+_COMPREHENSION_NODES = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
 def _iter_calls(
     body: list[ast.stmt], in_conditional: bool = False, in_loop: bool = False
 ) -> Iterator[tuple[ast.Call, bool, bool]]:
-    """Yield calls in this body, not descending into nested definitions."""
-    for node in body:
-        if isinstance(node, (*_FUNCTION_NODES, ast.ClassDef)):
+    """Yield calls in this body, not descending into nested definitions.
+
+    Flags are computed per field, not per statement: a statement's children do
+    not all inherit the same conditional/loop status just because their parent
+    does (a while-test always runs, a while-body might not; a while-body runs
+    repeatedly, a while-else runs at most once).
+    """
+    for stmt in body:
+        yield from _iter_stmt(stmt, in_conditional, in_loop)
+
+
+def _iter_stmt(
+    node: ast.stmt, conditional: bool, loop: bool
+) -> Iterator[tuple[ast.Call, bool, bool]]:
+    if isinstance(node, (*_FUNCTION_NODES, ast.ClassDef)):
+        return  # a separate caller - not this function's business
+
+    if isinstance(node, ast.If):
+        yield from _iter_expr(node.test, conditional, loop)
+        yield from _iter_stmts(node.body, True, loop)
+        yield from _iter_stmts(node.orelse, True, loop)
+        return
+
+    if isinstance(node, ast.While):
+        yield from _iter_expr(node.test, conditional, loop)
+        yield from _iter_stmts(node.body, conditional, True)
+        yield from _iter_stmts(node.orelse, True, loop)
+        return
+
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        yield from _iter_expr(node.iter, conditional, loop)
+        yield from _iter_stmts(node.body, conditional, True)
+        yield from _iter_stmts(node.orelse, True, loop)
+        return
+
+    if isinstance(node, _TRY_NODES):
+        yield from _iter_stmts(node.body, conditional, loop)
+        for handler in node.handlers:
+            if handler.type is not None:
+                yield from _iter_expr(handler.type, True, loop)
+            yield from _iter_stmts(handler.body, True, loop)
+        yield from _iter_stmts(node.orelse, True, loop)
+        yield from _iter_stmts(node.finalbody, conditional, loop)
+        return
+
+    if isinstance(node, ast.Match):
+        yield from _iter_expr(node.subject, conditional, loop)
+        for case in node.cases:
+            if case.guard is not None:
+                yield from _iter_expr(case.guard, True, loop)
+            yield from _iter_stmts(case.body, True, loop)
+        return
+
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            yield from _iter_expr(item.context_expr, conditional, loop)
+        yield from _iter_stmts(node.body, conditional, loop)
+        return
+
+    # Any other statement: its expr/stmt children inherit the flags unchanged.
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, ast.expr):
+            yield from _iter_expr(child, conditional, loop)
+        elif isinstance(child, ast.stmt):
+            yield from _iter_stmt(child, conditional, loop)
+
+
+def _iter_stmts(
+    stmts: list[ast.stmt], conditional: bool, loop: bool
+) -> Iterator[tuple[ast.Call, bool, bool]]:
+    for stmt in stmts:
+        yield from _iter_stmt(stmt, conditional, loop)
+
+
+def _iter_expr(
+    node: ast.expr, conditional: bool, loop: bool
+) -> Iterator[tuple[ast.Call, bool, bool]]:
+    if isinstance(node, ast.Call):
+        yield node, conditional, loop
+        yield from _iter_expr(node.func, conditional, loop)
+        for arg in node.args:
+            yield from _iter_expr(arg, conditional, loop)
+        for kw in node.keywords:
+            yield from _iter_expr(kw.value, conditional, loop)
+        return
+
+    if isinstance(node, ast.IfExp):
+        yield from _iter_expr(node.test, conditional, loop)
+        yield from _iter_expr(node.body, True, loop)
+        yield from _iter_expr(node.orelse, True, loop)
+        return
+
+    if isinstance(node, _COMPREHENSION_NODES):
+        generators = node.generators
+        if generators:
+            first, *rest = generators
+            yield from _iter_expr(first.iter, conditional, loop)
+            for if_expr in first.ifs:
+                yield from _iter_expr(if_expr, conditional, True)
+            for gen in rest:
+                yield from _iter_expr(gen.iter, conditional, True)
+                for if_expr in gen.ifs:
+                    yield from _iter_expr(if_expr, conditional, True)
+        if isinstance(node, ast.DictComp):
+            yield from _iter_expr(node.key, conditional, True)
+            yield from _iter_expr(node.value, conditional, True)
+        else:
+            yield from _iter_expr(node.elt, conditional, True)
+        return
+
+    # Any other expression: recurse into its expr/stmt children unchanged.
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (*_FUNCTION_NODES, ast.ClassDef)):
             continue
-        conditional = in_conditional or isinstance(node, (ast.If, ast.Try, ast.Match))
-        loop = in_loop or isinstance(node, (ast.For, ast.AsyncFor, ast.While))
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (*_FUNCTION_NODES, ast.ClassDef)):
-                continue
-            if isinstance(child, ast.Call):
-                yield child, conditional, loop
-                for grandchild in ast.iter_child_nodes(child):
-                    yield from _iter_calls([grandchild], conditional, loop)  # type: ignore[list-item]
-            elif isinstance(child, ast.stmt):
-                yield from _iter_calls([child], conditional, loop)
-            else:
-                yield from _iter_calls([child], conditional, loop)  # type: ignore[list-item]
-        if isinstance(node, ast.Call):
-            yield node, conditional, loop
+        if isinstance(child, ast.expr):
+            yield from _iter_expr(child, conditional, loop)
+        elif isinstance(child, ast.stmt):
+            yield from _iter_stmt(child, conditional, loop)
+
+
+def _iter_own_scope(body: list[ast.stmt]) -> Iterator[ast.AST]:
+    """Yield every node reachable in this function's own scope.
+
+    Does not cross into a nested function or class body - but does yield the
+    def/class node itself, so a caller can see its name without seeing what is
+    local to it.
+    """
+    stack: list[ast.AST] = list(body)
+    while stack:
+        current = stack.pop()
+        yield current
+        if isinstance(current, (*_FUNCTION_NODES, ast.ClassDef)):
+            continue
+        stack.extend(ast.iter_child_nodes(current))
 
 
 class _Resolver:
@@ -93,9 +219,15 @@ class _Resolver:
         for module_id, info in sorted(self.table.modules.items()):
             try:
                 tree = ast.parse(info.source, filename=str(info.path))
-            except SyntaxError:  # already reported in pass 1
+                self._visit_body(tree.body, module_id, parent=module_id, class_qualname=None)
+            except (SyntaxError, RecursionError):
+                # SyntaxError: already reported in pass 1.
+                # RecursionError: pass 1 accepted the file (its own walk is far
+                # shallower - it never recurses into expression trees), but a
+                # pathologically deep expression can still blow the stack while
+                # this pass resolves it. One pathological file must not abort
+                # the whole run, so it is skipped exactly like a syntax error.
                 continue
-            self._visit_body(tree.body, module_id, parent=module_id, class_qualname=None)
         return self.calls
 
     def _visit_body(
@@ -111,7 +243,11 @@ class _Resolver:
                 self._visit_body(node.body, module_id, qualname, class_qualname=qualname)
 
     def _walk_function(
-        self, node: ast.AST, module_id: str, caller: str, class_qualname: str | None
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        module_id: str,
+        caller: str,
+        class_qualname: str | None,
     ) -> None:
         context = _Context(
             caller=caller,
@@ -137,7 +273,9 @@ class _Resolver:
                 )
             )
 
-    def _bind_locals(self, node: ast.AST, context: _Context) -> None:
+    def _bind_locals(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef, context: _Context
+    ) -> None:
         args = node.args
         every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
         if args.vararg:
@@ -146,9 +284,33 @@ class _Resolver:
             every.append(args.kwarg)
         for arg in every:
             context.shadowed.add(arg.arg)
+
+        # Nested defs directly in this function's own body are known callables -
+        # calls to them resolve through context.names, not through module scope.
+        top_level_defs = {id(inner) for inner in node.body if isinstance(inner, _FUNCTION_NODES)}
         for inner in node.body:
             if isinstance(inner, _FUNCTION_NODES):
                 context.names[inner.name] = f"{context.caller}.{inner.name}"
+
+        # Everything else that binds a name anywhere in this function's own
+        # scope (not crossing into a nested def/class) shadows module scope:
+        # assignment, augmented/annotated assignment, for-targets, walrus,
+        # `with ... as name`, comprehension targets (all ast.Name/Store or
+        # ast.Name/Del), `except ... as name` (a plain str, not a Name node),
+        # and any def/class that is not directly at this body's top level
+        # (e.g. one declared inside an `if`) - pass 1 only records top-level
+        # definitions, so there is no correct qualname to point at and the
+        # call must degrade to unresolved rather than assert a wrong target.
+        for descendant in _iter_own_scope(node.body):
+            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
+                context.shadowed.add(descendant.id)
+            elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
+                context.shadowed.add(descendant.name)
+            elif (
+                isinstance(descendant, (*_FUNCTION_NODES, ast.ClassDef))
+                and id(descendant) not in top_level_defs
+            ):
+                context.shadowed.add(descendant.name)
 
     # -- resolution strategies -------------------------------------------
 
