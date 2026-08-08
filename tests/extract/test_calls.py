@@ -527,3 +527,86 @@ def test_shadowed_receiver_does_not_resolve_through_a_module_alias(tmp_path):
         ),
     })
     assert ("app.cli.go", "app.util.parse") not in result
+    assert result[("app.cli.go", None)] is Confidence.UNRESOLVED
+
+
+# -- a separate change fix round 1: proven correctness defects in the own code -
+
+
+def test_a_nested_def_shadows_a_receiver_even_though_it_is_not_a_parameter(tmp_path):
+    # _bind_locals deliberately keeps a top-level nested def's name OUT of
+    # context.shadowed (it lives in context.names instead, so a bare call to
+    # it resolves to the nested definition). _resolve_receiver must honour
+    # that too: a nested `def util(): ...` shadows the module named `util`
+    # just as much as a parameter or assignment would, so `util.parse()`
+    # must not resolve through the `from app import util` alias - at
+    # runtime `util` is the local function, and `.parse()` would raise
+    # AttributeError, not call app.util.parse.
+    result = edges_for(tmp_path, {
+        "app/__init__.py": "",
+        "app/util.py": "def parse():\n    pass\n",
+        "app/cli.py": (
+            "from app import util\n\n"
+            "def go():\n"
+            "    def util():\n        pass\n"
+            "    util.parse()\n"
+        ),
+    })
+    assert ("app.cli.go", "app.util.parse") not in result
+    assert result[("app.cli.go", None)] is Confidence.UNRESOLVED
+
+
+def test_super_call_with_explicit_arguments_does_not_resolve(tmp_path):
+    # super(B, self) starts the search AFTER B in type(self)'s MRO, so the
+    # correct target is m.A.go, not m.B.go - the one class the call
+    # explicitly skips. Resolving explicit-super correctly needs the
+    # runtime MRO of type(self), which static analysis does not have, so
+    # this must stay UNRESOLVED rather than resolve to the wrong class.
+    result = edges_for(tmp_path, {"m.py": (
+        "class A:\n    def go(self):\n        pass\n"
+        "\n"
+        "class B(A):\n    def go(self):\n        pass\n"
+        "\n"
+        "class C(B):\n    def go(self):\n        super(B, self).go()\n"
+    )})
+    assert ("m.C.go", "m.B.go") not in result
+    assert result[("m.C.go", None)] is Confidence.UNRESOLVED
+
+
+def test_bare_super_call_still_resolves_to_the_base_method(tmp_path):
+    # Same scenario as the explicit-arguments case above, but with bare
+    # super() - must keep resolving via the MRO, unaffected by the fix that
+    # rejects explicit arguments.
+    result = edges_for(tmp_path, {"m.py": (
+        "class A:\n    def go(self):\n        pass\n"
+        "\n"
+        "class B(A):\n    def go(self):\n        pass\n"
+        "\n"
+        "class C(B):\n    def go(self):\n        super().go()\n"
+    )})
+    assert result[("m.C.go", "m.B.go")] is Confidence.RESOLVED
+
+
+def test_self_reassignment_prevents_confident_mro_resolution(tmp_path):
+    # self is reassigned to a different object before the call, so it no
+    # longer names the receiver the MRO walk assumes - resolving through
+    # the class MRO here would be a confident guess about an object we no
+    # longer know anything about.
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n"
+        "    def send(self, other):\n"
+        "        self = other\n"
+        "        self.retry()\n"
+        "    def retry(self):\n        pass\n"
+    )})
+    assert ("m.H.send", "m.H.retry") not in result
+    assert result[("m.H.send", None)] is Confidence.UNRESOLVED
+
+
+def test_call_through_a_same_module_class_receiver_resolves(tmp_path):
+    result = edges_for(tmp_path, {"m.py": (
+        "class H:\n    def make(self):\n        pass\n"
+        "\n"
+        "def go():\n    H.make(H())\n"
+    )})
+    assert result[("m.go", "m.H.make")] is Confidence.RESOLVED

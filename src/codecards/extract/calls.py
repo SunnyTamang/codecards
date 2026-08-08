@@ -40,6 +40,7 @@ class _Context:
     names: dict[str, str]  # local name -> callable qualname (nested defs)
     types: dict[str, str]  # local name -> class qualname
     shadowed: set[str]  # local bindings that block module-scope lookup
+    reassigned: set[str]  # names rebound in this function's own body (not parameters)
 
 
 def resolve_calls(
@@ -301,6 +302,7 @@ class _Resolver:
             names={},
             types={},
             shadowed=set(),
+            reassigned=set(),
         )
         self._bind_locals(node, context)
         # Buffered locally, not appended straight to self.calls: if this
@@ -366,11 +368,20 @@ class _Resolver:
         # (e.g. one declared inside an `if`) - pass 1 only records top-level
         # definitions, so there is no correct qualname to point at and the
         # call must degrade to unresolved rather than assert a wrong target.
+        #
+        # The Name/ExceptHandler branches also record into context.reassigned:
+        # a genuine local rebinding of the identifier's value (as opposed to a
+        # nested def/class merely occupying the name), which matters for
+        # self/cls - those are always parameters (always in context.shadowed
+        # for that reason alone) but only sometimes actually reassigned to
+        # something other than the instance/class the method was called on.
         for descendant in _iter_own_scope(node.body):
             if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
                 context.shadowed.add(descendant.id)
+                context.reassigned.add(descendant.id)
             elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
                 context.shadowed.add(descendant.name)
+                context.reassigned.add(descendant.name)
             elif (
                 isinstance(descendant, (*_FUNCTION_NODES, ast.ClassDef))
                 and id(descendant) not in top_level_defs
@@ -393,11 +404,21 @@ class _Resolver:
     ) -> tuple[str | None, Confidence, tuple[str, ...]]:
         attribute = node.attr
 
-        # super().method()
+        # super().method() - bare super() only. super(B, self).method() needs
+        # the runtime MRO of type(self) to resolve correctly (it starts the
+        # search AFTER B, not at the current class), which static analysis
+        # does not have; guessing would draw a confident edge to the wrong
+        # class, so any argument at all keeps this UNRESOLVED. Also refuse if
+        # "super" has been locally rebound - it would no longer name the
+        # builtin.
         if (
             isinstance(node.value, ast.Call)
             and isinstance(node.value.func, ast.Name)
             and node.value.func.id == "super"
+            and not node.value.args
+            and not node.value.keywords
+            and "super" not in context.shadowed
+            and "super" not in context.names
             and context.class_qualname
         ):
             for base in self.table.mro(context.class_qualname)[1:]:
@@ -406,10 +427,14 @@ class _Resolver:
                     return self._finalise(candidate)
             return None, Confidence.UNRESOLVED, ()
 
-        # self.method() / cls.method()
+        # self.method() / cls.method() - refuse if self/cls has been
+        # reassigned in this function's own body (legal, if rare): once
+        # reassigned it no longer names the instance/class the method was
+        # called on, so resolving through the class MRO would be a guess.
         if (
             isinstance(node.value, ast.Name)
             and node.value.id in ("self", "cls")
+            and node.value.id not in context.reassigned
             and context.class_qualname
         ):
             for base in self.table.mro(context.class_qualname):
@@ -442,10 +467,17 @@ class _Resolver:
 
     def _resolve_receiver(self, receiver: str, context: _Context) -> str | None:
         """Map a dotted receiver expression onto a module or package id."""
-        if receiver.split(".")[0] in context.shadowed:
+        head, _, rest = receiver.partition(".")
+        # A locally bound name always beats the module alias map - including
+        # a nested def/class, which context.names tracks separately from
+        # context.shadowed precisely so a bare call to it still resolves
+        # (through context.names, not here). A receiver head that names one
+        # is not that nested callable's return value, it IS the callable
+        # itself, so `.attr()` on it can never be the aliased module's
+        # attribute.
+        if head in context.shadowed or head in context.names:
             return None
         aliases = self.table.modules[context.module_id].aliases
-        head, _, rest = receiver.partition(".")
         if head in aliases:
             base = aliases[head]
             return f"{base}.{rest}" if rest else base
