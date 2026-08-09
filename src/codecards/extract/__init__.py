@@ -18,6 +18,7 @@ from ..graph.model import (
 from ..report import AnalysisReport
 from .calls import resolve_calls, to_edges
 from .discovery import SkippedFile, find_python_files
+from .highlight import prepare
 from .symbols import SymbolTable, build_symbol_table
 
 #: Synthetic container that groups stdlib and third-party leaf nodes.
@@ -115,13 +116,16 @@ def _parent_of(node_id: str) -> str | None:
 def _add_definitions(graph: CodeGraph, table: SymbolTable, embed_source: bool) -> None:
     for qualname, definition in sorted(table.definitions.items()):
         source = None
+        tokens = None
+        truncated = False
         if embed_source:
             module_id = _owning_module(qualname, table)
             if module_id:
-                lines = table.modules[module_id].source.splitlines()
-                start = definition.location.line_start - 1
-                end = definition.location.line_end
-                source = "\n".join(lines[start:end]).rstrip()
+                source, tokens, truncated = prepare(
+                    table.modules[module_id].source,
+                    definition.location.line_start,
+                    definition.location.line_end,
+                )
         graph.nodes[qualname] = Node(
             id=qualname,
             kind=definition.kind,
@@ -132,6 +136,8 @@ def _add_definitions(graph: CodeGraph, table: SymbolTable, embed_source: bool) -
             summary=definition.summary,
             decorators=definition.decorators,
             source=source,
+            source_tokens=tokens,
+            source_truncated=truncated,
         )
 
 

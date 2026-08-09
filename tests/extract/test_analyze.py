@@ -180,3 +180,32 @@ def test_the_recursion_guard_does_not_leak_into_healthy_files(tmp_path):
     graph, _report = analyze([root])
     assert sys.getrecursionlimit() == before
     assert "later.c" in graph.nodes
+
+
+def test_analyze_attaches_source_and_tokens_by_default(tmp_path):
+    root = tmp_path / "proj"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "__init__.py").write_text("")
+    (root / "app" / "mail.py").write_text(
+        "class Mailer:\n"
+        "    def send(self, msg):\n"
+        "        return post(msg)\n"
+    )
+    graph, _ = analyze([root])
+    node = graph.nodes["app.mail.Mailer.send"]
+    assert node.source == "    def send(self, msg):\n        return post(msg)"
+    assert node.source_tokens is not None
+    assert len(node.source_tokens) == 2
+    # The slice is indented, so the `def` keyword starts at column 4, not 0.
+    assert (4, 3, "kw") in node.source_tokens[0]
+    assert node.source_truncated is False
+
+
+def test_analyze_omits_source_when_embedding_is_off(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "m.py").write_text("def f():\n    return 1\n")
+    graph, _ = analyze([root], embed_source=False)
+    node = graph.nodes["m.f"]
+    assert node.source is None
+    assert node.source_tokens is None

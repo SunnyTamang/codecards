@@ -72,6 +72,8 @@ class Node:
     summary: str | None = None  # first line of the docstring
     decorators: tuple[str, ...] = ()
     source: str | None = None  # populated only with --embed-source
+    source_tokens: tuple[tuple[tuple[int, int, str], ...], ...] | None = None
+    source_truncated: bool = False
 
 
 @dataclass(frozen=True)
