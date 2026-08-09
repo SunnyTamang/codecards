@@ -253,3 +253,43 @@ def test_analyze_omits_source_when_embedding_is_off(tmp_path):
     node = graph.nodes["m.f"]
     assert node.source is None
     assert node.source_tokens is None
+
+def test_pointing_at_a_package_directory_names_modules_from_its_parent(tmp_path):
+    """`codecards src/mypkg` is the normal invocation, but mypkg is not the
+    import root: Python puts its parent on the path. Measuring from the
+    directory itself named mypkg/cli.py as `cli` and mypkg/__init__.py as the
+    empty string, which reached the canvas as a blank unnamed card."""
+    root = tmp_path / "mypkg"
+    (root / "sub").mkdir(parents=True)
+    (root / "__init__.py").write_text("def top():\n    pass\n")
+    (root / "cli.py").write_text("def main():\n    pass\n")
+    (root / "sub" / "__init__.py").write_text("")
+    (root / "sub" / "deep.py").write_text("def go():\n    pass\n")
+
+    graph, _ = analyze([root])
+
+    assert "" not in graph.nodes
+    assert "mypkg.cli.main" in graph.nodes
+    assert "mypkg.top" in graph.nodes
+    assert "mypkg.sub.deep.go" in graph.nodes
+    assert [n.id for n in graph.nodes.values() if n.parent is None] == ["mypkg"]
+
+
+def test_a_plain_directory_root_is_unchanged(tmp_path):
+    """Only a package directory shifts the naming root."""
+    root = tmp_path / "src"
+    root.mkdir()
+    (root / "loose.py").write_text("def go():\n    pass\n")
+    graph, _ = analyze([root])
+    assert "loose.go" in graph.nodes
+
+
+def test_nested_package_roots_walk_all_the_way_up(tmp_path):
+    """Pointing inside a package tree still names from outside it."""
+    deep = tmp_path / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    for part in (tmp_path / "a", tmp_path / "a" / "b", deep):
+        (part / "__init__.py").write_text("")
+    (deep / "m.py").write_text("def go():\n    pass\n")
+    graph, _ = analyze([deep])
+    assert "a.b.c.m.go" in graph.nodes

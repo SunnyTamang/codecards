@@ -74,8 +74,47 @@ def test_undrawn_tiers_are_excluded():
     assert all(e.confidence is not Confidence.UNRESOLVED for e in view.edges)
 
 
-def test_default_collapsed_is_every_module():
-    assert default_collapsed(build()) == {"app.cli", "app.mail"}
+def test_the_opening_view_contains_no_callables():
+    """The point of the opening view. A package's __init__.py definitions are
+    parented to the package, not to a module, so collapsing only modules left
+    them loose on the canvas."""
+    graph = build()
+    view = collapse(graph, default_collapsed(graph))
+    kinds = {graph.nodes[i].kind for i in view.visible}
+    assert not (kinds & {NodeKind.FUNCTION, NodeKind.METHOD})
+
+
+def test_default_collapsed_holds_every_container_of_a_callable():
+    """Modules, plus anything else that directly holds a callable. The class
+    is included even though its module hides it, so that expanding the module
+    reveals one class card rather than every method at once."""
+    assert default_collapsed(build()) == {"app.cli", "app.mail", "app.mail.H"}
+
+
+def test_a_package_whose_init_holds_functions_is_collapsed():
+    """The case that motivated the rule: analysing codecards put twelve loose
+    functions from extract/__init__.py onto the module map."""
+    nodes = [
+        Node(id="pkg", kind=NodeKind.PACKAGE, name="pkg"),
+        Node(id="pkg.helper", kind=NodeKind.FUNCTION, name="helper", parent="pkg"),
+        Node(id="pkg.sub", kind=NodeKind.MODULE, name="sub", parent="pkg"),
+        Node(id="pkg.sub.go", kind=NodeKind.FUNCTION, name="go", parent="pkg.sub"),
+    ]
+    graph = CodeGraph(nodes={n.id: n for n in nodes}, edges=[])
+    assert "pkg" in default_collapsed(graph)
+    assert "pkg.helper" not in collapse(graph, default_collapsed(graph)).visible
+
+
+def test_a_package_holding_only_modules_stays_open():
+    """Otherwise the module map inside it would be hidden for no reason."""
+    nodes = [
+        Node(id="pkg", kind=NodeKind.PACKAGE, name="pkg"),
+        Node(id="pkg.sub", kind=NodeKind.MODULE, name="sub", parent="pkg"),
+        Node(id="pkg.sub.go", kind=NodeKind.FUNCTION, name="go", parent="pkg.sub"),
+    ]
+    graph = CodeGraph(nodes={n.id: n for n in nodes}, edges=[])
+    assert "pkg" not in default_collapsed(graph)
+    assert "pkg.sub" in collapse(graph, default_collapsed(graph)).visible
 
 
 def test_view_edges_are_deterministically_ordered():

@@ -23,14 +23,18 @@ CC.cards = (function () {
     return node;
   }
 
-  // Colour by top-level package, so orientation arrives before any label
-  // is read. Hue from a stable hash, not from iteration order, or the
-  // colours would move when the graph changes.
-  function packageHue(id) {
-    const root = String(id).split('.')[0];
+  // Colour by the containing package, so siblings share a hue and
+  // orientation arrives before any label is read.
+  //
+  // Hashing the TOP-LEVEL package instead is useless in the common case:
+  // pointing at one package makes every id share a first segment, and the
+  // whole canvas comes out one colour. Hue comes from a stable hash rather
+  // than iteration order, so colours do not move when the graph changes.
+  function packageHue(key) {
+    const text = String(key || '');
     let hash = 0;
-    for (let i = 0; i < root.length; i++) {
-      hash = (hash * 31 + root.charCodeAt(i)) | 0;
+    for (let i = 0; i < text.length; i++) {
+      hash = (hash * 31 + text.charCodeAt(i)) | 0;
     }
     return Math.abs(hash) % 360;
   }
@@ -96,7 +100,8 @@ CC.cards = (function () {
     const card = el('div', 'card');
     card.dataset.id = node.id;
     card.dataset.kind = node.kind;
-    card.style.setProperty('--pkg', 'hsl(' + packageHue(node.id) + ' 62% 58%)');
+    card.style.setProperty('--pkg',
+      'hsl(' + packageHue(node.parent || node.id) + ' 62% 58%)');
     if (opts.isContainer) card.classList.add('container');
     if (opts.isOrphan) card.classList.add('orphan');
 

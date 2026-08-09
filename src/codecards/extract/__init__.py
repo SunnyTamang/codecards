@@ -27,6 +27,29 @@ EXTERNAL_ROOT_ID = "<external>"
 __all__ = ["analyze", "EXTERNAL_ROOT_ID"]
 
 
+def _import_roots(roots: list[Path]) -> list[Path]:
+    """Where module names should be measured from.
+
+    Pointing at a package directory is the normal way to use this tool
+    (`codecards src/codecards`), but the package directory is not the import
+    root: Python puts its PARENT on the path and imports `codecards.cli`.
+    Measuring from the directory itself named that module `cli`, and named the
+    package's own `__init__.py` the empty string, which reached the canvas as a
+    blank unnamed card.
+
+    Discovery still walks only the paths the user asked for. This affects
+    naming alone.
+    """
+    resolved = []
+    for root in roots:
+        root = Path(root)
+        base = root if root.is_dir() else root.parent
+        while (base / "__init__.py").is_file() and base.parent != base:
+            base = base.parent
+        resolved.append(base)
+    return resolved
+
+
 def analyze(
     roots: list[Path],
     excludes: tuple[str, ...] | list[str] = (),
@@ -35,7 +58,7 @@ def analyze(
 ) -> tuple[CodeGraph, AnalysisReport]:
     roots = [Path(r) for r in roots]
     files, skipped = find_python_files(roots, excludes)
-    table, parse_skipped = build_symbol_table(files, roots)
+    table, parse_skipped = build_symbol_table(files, _import_roots(roots))
 
     # Pass 2 reports its own skips through an out-parameter so a function that
     # blows the recursion limit is visible in the summary rather than silently

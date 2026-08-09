@@ -62,8 +62,27 @@ def is_visible(graph: CodeGraph, node_id: str, collapsed: set[str]) -> bool:
 
 
 def default_collapsed(graph: CodeGraph) -> set[str]:
-    """The opening view: every module collapsed into a single card."""
-    return {n.id for n in graph.nodes.values() if n.kind is NodeKind.MODULE}
+    """The opening view: no callables on the canvas, only containers.
+
+    Collapsing every module is not enough. A package's `__init__.py`
+    definitions are parented to the package node, not to a module, so
+    "collapse every module" left them on the canvas: analysing codecards put
+    twelve loose functions from `extract/__init__.py` into what is meant to be
+    a module map, which is the hairball this view exists to prevent.
+
+    So the rule is every module, plus anything else that directly contains a
+    callable. Modules stay uniformly collapsed, which is what makes the view a
+    module map; a package whose `__init__.py` carries logic collapses too and
+    becomes one card until it is opened; a package containing only modules
+    stays open, so the modules inside it are visible.
+    """
+    holds_a_callable = {
+        node.parent for node in graph.callables() if node.parent is not None
+    }
+    return {
+        n.id for n in graph.nodes.values()
+        if n.kind is NodeKind.MODULE or n.id in holds_a_callable
+    }
 
 
 def collapse(graph: CodeGraph, collapsed: set[str]) -> ViewGraph:

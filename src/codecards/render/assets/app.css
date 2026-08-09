@@ -105,6 +105,11 @@ html, body {
   contain: layout paint;
 }
 .card.container { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+/* A container's children start below its header, so anything the container
+   draws under its own name is overlapped by the first child card. */
+.card.container > .card-path,
+.card.container > .card-sig,
+.card.container > .card-summary { display: none; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .card.active { border-color: var(--active); box-shadow: 0 0 0 2px var(--active); }
 .card.dimmed { opacity: 0.18; }
