@@ -118,11 +118,20 @@ def _dotted(node: ast.AST) -> str | None:
 
 
 def _summary(node: ast.AST) -> str | None:
+    """The first line of the docstring, or None if there is nothing to show.
+
+    A docstring can be entirely whitespace. `ast.get_docstring` returns that
+    as a non-empty string which strips to nothing, so guarding only on
+    falsiness leaves an empty `splitlines()` to index into. Found on sympy,
+    where it aborted the whole run rather than costing one file its summary.
+    """
     doc = ast.get_docstring(node)
     if not doc:
         return None
-    first = doc.strip().splitlines()[0].strip()
-    return first or None
+    stripped = doc.strip()
+    if not stripped:
+        return None
+    return stripped.splitlines()[0].strip() or None
 
 
 def _root_for(path: Path, roots: list[Path]) -> Path:

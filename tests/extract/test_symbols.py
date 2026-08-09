@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecards.extract.symbols import build_symbol_table, module_id_for
+from codecards.extract.symbols import build_symbol_table, module_id_for, _summary
 from codecards.graph.model import NodeKind
 
 
@@ -225,3 +225,32 @@ def test_non_utf8_file_is_skipped(tmp_path):
     assert "good.a" in table.definitions
     assert len(skipped) == 1
     assert "encoding error" in skipped[0].reason
+
+def test_a_whitespace_only_docstring_does_not_abort_the_run(tmp_path):
+    """Found on sympy: get_docstring returns a truthy string that strips to
+    nothing, so guarding only on falsiness left splitlines()[0] to raise and
+    took the whole run down with it."""
+    table, skipped = build(tmp_path, {
+        "good.py": 'def a():\n    """Fine."""\n    return 1\n',
+        "bad.py": 'class K:\n    def m(self):\n        """\n        """\n        return 1\n',
+        "also_good.py": 'def c():\n    """Also fine."""\n    return 3\n',
+    })
+
+    assert skipped == []
+    assert table.definitions["good.a"].summary == "Fine."
+    assert table.definitions["also_good.c"].summary == "Also fine."
+    assert table.definitions["bad.K.m"].summary is None
+
+
+def test_docstring_summary_shapes():
+    import ast
+
+    def summary_of(src):
+        return _summary(ast.parse(src).body[0])
+
+    assert summary_of('def f():\n    """Hi."""\n') == "Hi."
+    assert summary_of('def f():\n    """"""\n') is None
+    assert summary_of('def f():\n    """   """\n') is None
+    assert summary_of('def f():\n    """\n    """\n') is None
+    assert summary_of('def f():\n    """\n\n    Real text.\n    """\n') == "Real text."
+    assert summary_of('def f():\n    """First.\n\n    More.\n    """\n') == "First."
