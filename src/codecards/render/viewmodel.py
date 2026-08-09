@@ -1,0 +1,136 @@
+"""Flatten a CodeGraph into the JSON payload the page consumes.
+
+Two fields exist specifically to keep the browser honest: `initialView` and
+`goldenTrace` are computed here by the reference Python implementations, and
+the Playwright test asserts the JS reproduces them exactly.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from .. import __version__
+from ..graph.collapse import collapse, default_collapsed
+from ..graph.entrypoints import detect_entry_points
+from ..graph.model import CodeGraph
+from ..graph.walkthrough import build_walkthrough
+from ..report import AnalysisReport
+
+
+def build_viewmodel(
+    graph: CodeGraph, report: AnalysisReport, *, max_depth: int = 15
+) -> dict:
+    collapsed = default_collapsed(graph)
+    view = collapse(graph, collapsed)
+    entry_points = detect_entry_points(graph)
+
+    golden = None
+    if entry_points:
+        entry_id = entry_points[0].node_id
+        steps = build_walkthrough(graph, entry_id, max_depth=max_depth)
+        golden = {"entryId": entry_id, "steps": [_step(s) for s in steps]}
+
+    nodes = [_node(n) for n in graph.nodes.values()]
+    return {
+        "meta": {
+            "version": __version__,
+            "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "maxDepth": max_depth,
+            "hasSource": any("source" in n for n in nodes),
+        },
+        "nodes": nodes,
+        "edges": [_edge(e) for e in graph.edges],
+        "entryPoints": [
+            {"id": e.node_id, "reasons": [r.value for r in e.reasons]}
+            for e in entry_points
+        ],
+        "orphans": _orphans(graph, entry_points),
+        "initialView": {
+            "collapsed": sorted(collapsed),
+            "visible": list(view.visible),
+            "edges": [
+                {
+                    "source": e.source,
+                    "target": e.target,
+                    "confidence": e.confidence.value,
+                    "weight": e.weight,
+                    "tiers": e.tiers,
+                }
+                for e in view.edges
+            ],
+            "internalCounts": view.internal_counts,
+        },
+        "goldenTrace": golden,
+        "stats": {
+            "totalCalls": report.total_calls,
+            "byConfidence": report.by_confidence,
+            "resolutionRate": round(report.resolution_rate, 4),
+            "callableCount": report.callable_count,
+            "edgeCount": report.edge_count,
+            "skipped": [{"path": s.path, "reason": s.reason} for s in report.skipped],
+        },
+    }
+
+
+def _orphans(graph: CodeGraph, entry_points) -> list[str]:
+    """Callables nothing calls, excluding anything already an entry point.
+
+    An entry point with no callers is the front door. A plain function with no
+    callers is code the reader can safely ignore, and saying so is as useful as
+    saying where to start.
+    """
+    entry_ids = {e.node_id for e in entry_points}
+    called = {edge.target for edge in graph.edges}
+    return sorted(
+        node.id for node in graph.callables()
+        if node.id not in called and node.id not in entry_ids
+    )
+
+
+def _node(node) -> dict:
+    payload = {
+        "id": node.id,
+        "kind": node.kind.value,
+        "name": node.name,
+        "parent": node.parent,
+        "file": node.location.file if node.location else None,
+        "lineStart": node.location.line_start if node.location else None,
+        "lineEnd": node.location.line_end if node.location else None,
+        "signature": node.signature,
+        "summary": node.summary,
+        "decorators": list(node.decorators),
+    }
+    if node.source is not None:
+        payload["source"] = node.source
+        payload["tokens"] = [[list(run) for run in line]
+                             for line in (node.source_tokens or ())]
+        if node.source_truncated:
+            payload["truncated"] = True
+    return payload
+
+
+def _edge(edge) -> dict:
+    return {
+        "source": edge.source,
+        "target": edge.target,
+        "confidence": edge.confidence.value,
+        "sites": [
+            {"line": s.line, "cond": s.in_conditional, "loop": s.in_loop}
+            for s in edge.call_sites
+        ],
+    }
+
+
+def _step(step) -> dict:
+    return {
+        "index": step.index,
+        "callerId": step.caller_id,
+        "calleeId": step.callee_id,
+        "line": step.line,
+        "depth": step.depth,
+        "stack": list(step.stack),
+        "confidence": step.confidence.value,
+        "cond": step.in_conditional,
+        "loop": step.in_loop,
+        "recursive": step.recursive,
+    }
