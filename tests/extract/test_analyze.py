@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from codecards.extract import EXTERNAL_ROOT_ID, analyze
-from codecards.graph.model import Confidence, EntryReason, NodeKind, validate
+from codecards.graph.model import EntryReason, NodeKind, validate
 
 
 def project(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -96,11 +96,17 @@ def test_test_functions_produce_entry_hints(tmp_path):
 
 
 def test_embed_source_attaches_the_function_body(tmp_path):
+    """Embedding is the default: the cards are the code, so opting out is the
+    unusual case. The CLI exposes this as --no-source."""
     root = project(tmp_path, {"m.py": "def go():\n    return 42\n"})
     graph, _ = analyze([root], embed_source=True)
     assert graph.nodes["m.go"].source == "def go():\n    return 42"
-    plain, _ = analyze([root])
-    assert plain.nodes["m.go"].source is None
+
+    default, _ = analyze([root])
+    assert default.nodes["m.go"].source == "def go():\n    return 42"
+
+    omitted, _ = analyze([root], embed_source=False)
+    assert omitted.nodes["m.go"].source is None
 
 
 def test_report_counts_and_resolution_rate(tmp_path):
@@ -128,14 +134,20 @@ def test_skipped_files_are_reported_not_raised(tmp_path):
     assert "syntax error" in report.format()
 
 
-def test_graph_and_render_never_import_ast():
-    """The layering rule, enforced."""
+def test_graph_and_render_never_import_python_syntax_modules():
+    """The layering rule, enforced.
+
+    `tokenize` matters as much as `ast`: a separate change adds syntax highlighting, and
+    it belongs in extract/ with every other module that knows Python. If it
+    drifts into graph/ or render/, a second language stops being additive.
+    """
     import codecards
     package_root = Path(codecards.__file__).parent
     for sub in ("graph", "render"):
         for path in (package_root / sub).rglob("*.py"):
             text = path.read_text()
             assert "import ast" not in text, f"{path} imports ast"
+            assert "import tokenize" not in text, f"{path} imports tokenize"
 
 
 def test_a_file_that_blows_the_recursion_limit_is_skipped_not_fatal(tmp_path):
