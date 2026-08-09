@@ -94,3 +94,38 @@ def test_cli_writes_a_file(tmp_path):
     out = tmp_path / "graph.html"
     assert main([str(tmp_path), "-o", str(out), "--quiet"]) == 0
     assert out.is_file() and out.stat().st_size > 100_000
+
+def test_a_placeholder_inside_the_embedded_data_is_not_substituted():
+    """codecards analysing codecards embeds bundle.py's own source, which
+    contains the placeholder strings. Sequential replaces rescanned their own
+    output and injected raw JavaScript into the middle of a JSON string, so
+    the page loaded with window.CODECARDS_DATA undefined."""
+    import json as _json
+
+    booby_trapped = dict(VIEWMODEL)
+    booby_trapped["nodes"] = [{
+        "id": "m.render_html", "kind": "function", "name": "render_html",
+        "parent": None,
+        "source": ('("/*__CODECARDS_CSS__*/", css),\n'
+                   '("/*__CODECARDS_VENDOR__*/", vendor),\n'
+                   '("/*__CODECARDS_DATA__*/", data),\n'
+                   '("/*__CODECARDS_APP__*/", app),'),
+        "tokens": [[], [], [], []],
+    }]
+    html = render_html(booby_trapped)
+
+    start = html.index("window.CODECARDS_DATA = ")
+    end = html.index("</script>", start)
+    block = html[start:end]
+    assert "\n" not in block.rstrip("\n"), (
+        "a replacement was injected into the data block, breaking the JSON"
+    )
+    blob = block[len("window.CODECARDS_DATA = "):].rstrip().rstrip(";")
+    assert _json.loads(blob)["nodes"][0]["source"].count("__CODECARDS_") == 4
+
+
+def test_every_placeholder_is_filled_exactly_once():
+    html = render_html(VIEWMODEL)
+    for name in ("CSS", "VENDOR", "DATA", "APP"):
+        assert f"/*__CODECARDS_{name}__*/" not in html
+
