@@ -57,12 +57,11 @@ def test_setting_a_scale_outside_the_range_is_clamped_too(canvas_page):
     assert canvas_page.evaluate("CC.canvas.getView().scale") == pytest.approx(3.0)
 
 
-def test_fit_centres_the_bounds_and_leaves_padding(canvas_page):
+def test_fit_centres_the_bounds(canvas_page):
     """screenToWorld takes CLIENT coordinates. The viewport sits below the
-    toolbar, so its centre is box.top + height/2, not height/2, and passing
+    toolbar, so its centre is box.top + box.height/2, not height/2, and passing
     the latter silently shifts the assertion by the toolbar height."""
     canvas_page.evaluate("CC.canvas.fit({x: 0, y: 0, w: 1000, h: 500}, 40)")
-    assert canvas_page.evaluate("CC.canvas.getView().scale") < 1
     centre = canvas_page.evaluate("""() => {
         const box = document.getElementById('viewport').getBoundingClientRect();
         return CC.canvas.screenToWorld(box.left + box.width / 2,
@@ -70,6 +69,28 @@ def test_fit_centres_the_bounds_and_leaves_padding(canvas_page):
     }""")
     assert centre["x"] == pytest.approx(500, abs=1)
     assert centre["y"] == pytest.approx(250, abs=1)
+
+
+def test_fit_fills_the_padded_viewport_without_overflowing_it(canvas_page):
+    """Do not assert a particular scale. Whether fit zooms in or out depends on
+    the window size, so assert the property instead: the bounds end up inside
+    the padded area, and touch it on one axis."""
+    canvas_page.evaluate("CC.canvas.fit({x: 0, y: 0, w: 1000, h: 500}, 40)")
+    got = canvas_page.evaluate("""() => {
+        const box = document.getElementById('viewport').getBoundingClientRect();
+        const s = CC.canvas.getView().scale;
+        return {w: 1000 * s, h: 500 * s,
+                availW: box.width - 80, availH: box.height - 80};
+    }""")
+    assert got["w"] <= got["availW"] + 1
+    assert got["h"] <= got["availH"] + 1
+    assert (abs(got["w"] - got["availW"]) < 1
+            or abs(got["h"] - got["availH"]) < 1), "fit left space unused"
+
+
+def test_fit_scales_down_when_the_graph_is_bigger_than_the_viewport(canvas_page):
+    canvas_page.evaluate("CC.canvas.fit({x: 0, y: 0, w: 20000, h: 12000}, 40)")
+    assert canvas_page.evaluate("CC.canvas.getView().scale") < 1
 
 
 def test_fit_of_an_empty_bounds_does_not_divide_by_zero(canvas_page):
