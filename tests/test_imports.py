@@ -35,6 +35,8 @@ MODULES = [
     "codecards.graph.collapse",
     "codecards.graph.entrypoints",
     "codecards.graph.walkthrough",
+    "codecards.render",
+    "codecards.render.viewmodel",
 ]
 
 

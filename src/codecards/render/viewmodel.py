@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from .. import __version__
 from ..graph.collapse import collapse, default_collapsed
 from ..graph.entrypoints import detect_entry_points
-from ..graph.model import CodeGraph
+from ..graph.model import CodeGraph, EntryReason
 from ..graph.walkthrough import build_walkthrough
 from ..report import AnalysisReport
 
@@ -44,7 +44,7 @@ def build_viewmodel(
             {"id": e.node_id, "reasons": [r.value for r in e.reasons]}
             for e in entry_points
         ],
-        "orphans": _orphans(graph, entry_points),
+        "orphans": _orphans(entry_points),
         "initialView": {
             "collapsed": sorted(collapsed),
             "visible": list(view.visible),
@@ -72,18 +72,23 @@ def build_viewmodel(
     }
 
 
-def _orphans(graph: CodeGraph, entry_points) -> list[str]:
-    """Callables nothing calls, excluding anything already an entry point.
+def _orphans(entry_points) -> list[str]:
+    """Callables whose only claim to being an entry point is that nothing
+    calls them.
 
-    An entry point with no callers is the front door. A plain function with no
-    callers is code the reader can safely ignore, and saying so is as useful as
-    saying where to start.
+    Entry-point detection already computes this: in-degree zero is the
+    structural fallback, so an orphan arrives here as an EntryPoint carrying
+    NO_CALLERS and nothing else. A function that is also decorated, or a
+    console script, or a test has a real reason to exist without callers and
+    is the front door rather than dead code.
+
+    Excluding every entry point instead would exclude precisely the set this
+    is meant to return.
     """
-    entry_ids = {e.node_id for e in entry_points}
-    called = {edge.target for edge in graph.edges}
     return sorted(
-        node.id for node in graph.callables()
-        if node.id not in called and node.id not in entry_ids
+        entry.node_id
+        for entry in entry_points
+        if set(entry.reasons) == {EntryReason.NO_CALLERS}
     )
 
 

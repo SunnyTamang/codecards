@@ -21,6 +21,9 @@ def build() -> CodeGraph:
              location=Location("app/mail.py", 1, 30)),
         Node(id="app.mail.send", kind=NodeKind.FUNCTION, name="send", parent="app.mail",
              location=Location("app/mail.py", 4, 9)),
+        # Nothing calls this and it is not an entry point, so it is inert code.
+        Node(id="app.mail.unused", kind=NodeKind.FUNCTION, name="unused",
+             parent="app.mail", location=Location("app/mail.py", 11, 12)),
     ]
     edges = [Edge("app.cli.main", "app.mail.send", Confidence.RESOLVED,
                   (CallSite(5, in_conditional=True, in_loop=False),))]
@@ -67,7 +70,18 @@ def test_entry_points_are_listed_with_reasons():
 
 def test_orphans_are_flagged_for_the_muted_badge():
     """Callables nothing calls, that are not entry points, are inert code."""
-    assert model()["orphans"] == ["app.mail.send"]
+    assert model()["orphans"] == ["app.mail.unused"]
+
+
+def test_a_called_function_is_not_an_orphan():
+    """send() is called by main(), so it is reachable and must not be muted."""
+    assert "app.mail.send" not in model()["orphans"]
+
+
+def test_an_entry_point_with_no_callers_is_not_an_orphan():
+    """main() has no callers by design. That makes it the front door, not
+    dead code, and the two must not look the same on the canvas."""
+    assert "app.cli.main" not in model()["orphans"]
 
 
 def test_initial_view_is_the_collapsed_module_view():
