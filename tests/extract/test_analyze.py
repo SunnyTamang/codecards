@@ -80,6 +80,50 @@ def test_external_decorator_produces_an_entry_hint(tmp_path):
                for h in graph.entry_hints)
 
 
+def test_language_decorators_do_not_produce_hints(tmp_path):
+    """@property and friends resolve outside the codebase like a framework
+    decorator does, but they say how a callable behaves, not who calls it.
+    Before this rule, @property alone was 84 of email's 101 entry points."""
+    root = project(tmp_path, {"m.py": (
+        "import functools\n"
+        "import abc\n"
+        "\n"
+        "class C:\n"
+        "    @property\n"
+        "    def value(self):\n        return 1\n"
+        "    @value.setter\n"
+        "    def value(self, v):\n        pass\n"
+        "    @staticmethod\n"
+        "    def helper():\n        pass\n"
+        "    @classmethod\n"
+        "    def make(cls):\n        pass\n"
+        "    @abc.abstractmethod\n"
+        "    def must(self):\n        pass\n"
+        "    @functools.cached_property\n"
+        "    def heavy(self):\n        return 2\n"
+    )})
+    graph, _ = analyze([root])
+    decorated = [h.node_id for h in graph.entry_hints
+                 if h.reason is EntryReason.DECORATED]
+    assert decorated == []
+
+
+def test_a_framework_decorator_still_produces_a_hint_alongside_a_language_one(tmp_path):
+    """The denylist must skip the boring decorator and keep looking, not
+    give up on the callable."""
+    root = project(tmp_path, {"m.py": (
+        "import click\n"
+        "\n"
+        "class C:\n"
+        "    @staticmethod\n"
+        "    @click.command()\n"
+        "    def go():\n        pass\n"
+    )})
+    graph, _ = analyze([root])
+    assert any(h.node_id == "m.C.go" and h.reason is EntryReason.DECORATED
+               for h in graph.entry_hints)
+
+
 def test_internal_decorator_does_not_produce_a_hint(tmp_path):
     root = project(tmp_path, {"m.py": (
         "def deco(f):\n    return f\n\n@deco\ndef go():\n    pass\n"

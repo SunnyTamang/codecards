@@ -183,6 +183,8 @@ def _entry_hints(graph: CodeGraph, table: SymbolTable, roots: list[Path]) -> lis
         if definition.kind not in (NodeKind.FUNCTION, NodeKind.METHOD):
             continue
         for decorator in definition.decorators:
+            if _is_behaviour_decorator(decorator):
+                continue
             if not _decorator_is_internal(decorator, qualname, table):
                 hints.append(EntryHint(qualname, EntryReason.DECORATED))
                 break
@@ -192,6 +194,32 @@ def _entry_hints(graph: CodeGraph, table: SymbolTable, roots: list[Path]) -> lis
             hints.append(EntryHint(qualname, EntryReason.TEST))
 
     return hints
+
+
+#: Decorators that describe how a callable behaves, not who calls it.
+#:
+#: The DECORATED heuristic exists to catch framework entry points such as
+#: @app.route, @click.command and @celery.task, which share the shape of
+#: resolving outside the codebase. Language and stdlib decorators share that
+#: shape too, and a property is not a door into a program. Measured before
+#: this list existed: @property alone accounted for 84 of email's 101
+#: detected entry points, and 82% to 100% of every corpus tried was noise.
+BEHAVIOUR_DECORATORS = frozenset({
+    "property", "staticmethod", "classmethod",
+    "setter", "getter", "deleter",
+    "abstractmethod", "abstractproperty",
+    "cached_property", "cache", "lru_cache", "wraps",
+    "singledispatch", "singledispatchmethod", "total_ordering",
+    "overload", "final", "no_type_check", "runtime_checkable",
+    "dataclass", "contextmanager", "asynccontextmanager",
+})
+
+
+def _is_behaviour_decorator(decorator: str) -> bool:
+    """Match on the final segment, so `functools.cached_property`,
+    `abc.abstractmethod` and a bare `property` are all caught, as is the
+    `@name.setter` form where the head is a local property object."""
+    return decorator.rsplit(".", 1)[-1] in BEHAVIOUR_DECORATORS
 
 
 def _decorator_is_internal(decorator: str, qualname: str, table: SymbolTable) -> bool:
