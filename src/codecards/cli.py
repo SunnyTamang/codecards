@@ -42,6 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    # A mistyped path is the commonest way to invoke this wrongly, and
+    # "no Python files found in ..." reads as though the directory exists and
+    # is empty. Say which thing actually went wrong.
+    missing = [p for p in args.paths if not p.exists()]
+    if missing:
+        print(
+            "codecards: path does not exist: "
+            + ", ".join(str(p) for p in missing),
+            file=sys.stderr,
+        )
+        return 1
+
     graph, report = analyze(
         roots=args.paths,
         excludes=tuple(args.exclude),

@@ -43,10 +43,14 @@ def test_a_graph_with_no_edges_exits_one(tmp_path, capsys):
     assert "no calls" in capsys.readouterr().err
 
 
-def test_missing_path_exits_one(tmp_path, capsys):
+def test_missing_path_says_the_path_is_missing(tmp_path, capsys):
+    """A typo'd path is the commonest bad invocation, and "no Python files
+    found in X" reads as though X exists and is empty."""
     code = main([str(tmp_path / "nope"), "--no-html"])
     assert code == 1
-    assert "no Python files" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "does not exist" in err
+    assert "no Python files" not in err
 
 
 def test_exclude_flag_is_repeatable(tmp_path):
