@@ -169,20 +169,37 @@ def build_symbol_table(
         except SyntaxError as exc:
             skipped.append(SkippedFile(str(path), f"syntax error: line {exc.lineno}"))
             continue
+        except RecursionError:
+            # A long chained expression exhausts the stack inside ast.parse.
+            # Without this the exception escapes build_symbol_table and kills
+            # the whole run, losing every healthy file alongside it.
+            skipped.append(SkippedFile(str(path), "too deeply nested to parse"))
+            continue
 
         module_id = module_id_for(path, root)
         rel_path = path.resolve().relative_to(Path(root).resolve()).as_posix()
         info = ModuleInfo(module_id=module_id, path=path, rel_path=rel_path, source=source)
-        table.modules[module_id] = info
         is_package = path.name == "__init__.py"
+
+        try:
+            aliases = _collect_aliases(tree, module_id, info, is_package)
+            main_calls = _main_block_calls(tree)
+            definitions = _collect_definitions_for(tree, module_id, rel_path)
+        except RecursionError:
+            # The collectors recurse over the same tree, so a file can parse
+            # and still exhaust the stack here. Nothing has been written to
+            # `table` yet, so skipping leaves no half-built module behind.
+            skipped.append(SkippedFile(str(path), "too deeply nested to analyse"))
+            continue
+
+        table.modules[module_id] = info
         if is_package:
             table.packages.add(module_id)
         for i in range(1, module_id.count(".") + 1):
             table.packages.add(module_id.rsplit(".", i)[0])
-
-        _collect_aliases(tree, module_id, info, is_package)
-        info.main_block_calls = _main_block_calls(tree)
-        _collect_definitions(tree, module_id, rel_path, table)
+        table.definitions.update(definitions)
+        info.main_block_calls = main_calls
+        _ = aliases
 
     for qualname in table.definitions:
         table.by_simple_name.setdefault(qualname.rsplit(".", 1)[-1], []).append(qualname)
@@ -289,14 +306,16 @@ def _main_block_calls(tree: ast.Module) -> tuple[str, ...]:
     return tuple(calls)
 
 
-def _collect_definitions(
-    tree: ast.Module, module_id: str, rel_path: str, table: SymbolTable
-) -> None:
+def _collect_definitions_for(
+    tree: ast.Module, module_id: str, rel_path: str
+) -> dict[str, Definition]:
+    definitions: dict[str, Definition] = {}
+
     def visit(body: list[ast.stmt], parent: str, inside_class: bool) -> None:
         for node in body:
             if isinstance(node, _FUNCTION_NODES):
                 qualname = f"{parent}.{node.name}"
-                table.definitions[qualname] = Definition(
+                definitions[qualname] = Definition(
                     qualname=qualname,
                     kind=NodeKind.METHOD if inside_class else NodeKind.FUNCTION,
                     name=node.name,
@@ -312,7 +331,7 @@ def _collect_definitions(
                 visit(node.body, qualname, inside_class=False)
             elif isinstance(node, ast.ClassDef):
                 qualname = f"{parent}.{node.name}"
-                table.definitions[qualname] = Definition(
+                definitions[qualname] = Definition(
                     qualname=qualname,
                     kind=NodeKind.CLASS,
                     name=node.name,
@@ -328,6 +347,7 @@ def _collect_definitions(
                 visit(node.body, qualname, inside_class=True)
 
     visit(tree.body, module_id, inside_class=False)
+    return definitions
 
 
 def _end_line(node: ast.AST) -> int:
