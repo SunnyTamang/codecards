@@ -8,6 +8,8 @@ from pathlib import Path
 
 from . import __version__
 from .extract import analyze
+from .render.bundle import write_html
+from .render.viewmodel import build_viewmodel
 
 #: Above this many callables the expanded view stops being readable.
 LARGE_GRAPH_THRESHOLD = 5000
@@ -97,8 +99,12 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _write_html(graph, report, args) -> None:
-    """Replaced with the real renderer elsewhere."""
-    raise NotImplementedError("HTML rendering lands elsewhere")
+    viewmodel = build_viewmodel(graph, report, max_depth=args.max_depth)
+    write_html(viewmodel, args.output)
+    if args.open_browser:
+        import webbrowser
+
+        webbrowser.open(args.output.resolve().as_uri())
 
 
 def run() -> None:

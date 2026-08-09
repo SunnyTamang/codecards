@@ -1,0 +1,224 @@
+:root {
+  --bg: #0b0f17;
+  --surface: #151b26;
+  --surface-2: #1c2430;
+  --line: #2a3444;
+  --text: #dfe6f0;
+  --muted: #8695ab;
+  --accent: #4f8ff7;
+  --active: #ffcc55;
+  --resolved: #63b3ed;
+  --inferred: #d69e2e;
+  --ambiguous: #a0aec0;
+  --orphan: #6b7280;
+  --kw: #c792ea;
+  --str: #7fd88f;
+  --num: #f78c6c;
+  --com: #6b7a90;
+  --def: #82aaff;
+  --call: #89ddff;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --line: #d6dbe3;
+  --text: #1c2430;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --active: #b45309;
+  --resolved: #2563eb;
+  --inferred: #b45309;
+  --ambiguous: #64748b;
+  --orphan: #9aa4b2;
+  --kw: #8b3fb8;
+  --str: #067d3c;
+  --num: #b34700;
+  --com: #7a869a;
+  --def: #1d4ed8;
+  --call: #0e7490;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--text);
+  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+#app { display: flex; flex-direction: column; height: 100%; }
+
+/* ---- toolbar ---- */
+
+#toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 10px; background: var(--surface);
+  border-bottom: 1px solid var(--line); z-index: 5;
+}
+#toolbar .brand { font-weight: 700; letter-spacing: 0.2px; margin-right: 4px; }
+#toolbar input[type="search"] { flex: 1 1 200px; max-width: 320px; }
+#toolbar input, #toolbar select, #toolbar button {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 8px; font: inherit;
+}
+#toolbar button { cursor: pointer; }
+#toolbar button:hover { border-color: var(--accent); }
+#toolbar .toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+#transport { display: flex; gap: 4px; align-items: center; }
+#transport[hidden], #focus-control[hidden] { display: none; }
+
+/* ---- canvas ---- */
+
+#stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+
+#viewport {
+  position: absolute; inset: 0; overflow: hidden;
+  cursor: grab; touch-action: none;
+}
+#viewport.panning { cursor: grabbing; }
+
+/* #world carries the pan and zoom for cards and edges together, so an edge
+   endpoint can never drift from the card it points at. */
+#world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+#edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+#cards { position: absolute; top: 0; left: 0; }
+
+#zoom-readout {
+  position: absolute; right: 10px; bottom: 10px;
+  padding: 3px 8px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--line);
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
+
+/* ---- cards ---- */
+
+.card {
+  position: absolute;
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 3px solid var(--pkg, var(--accent));
+  border-radius: 8px; overflow: hidden;
+  contain: layout paint;
+}
+.card.container { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.card.active { border-color: var(--active); box-shadow: 0 0 0 2px var(--active); }
+.card.dimmed { opacity: 0.18; }
+.card.orphan .card-name::after {
+  content: "unused"; margin-left: 6px; padding: 0 5px;
+  border: 1px solid var(--orphan); border-radius: 6px;
+  color: var(--orphan); font-size: 9px; text-transform: uppercase;
+}
+
+.card-head { display: flex; align-items: baseline; gap: 5px; padding: 5px 8px; }
+.card-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-sig, .card-summary, .card-path {
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.card-badges { margin-left: auto; display: flex; gap: 4px; color: var(--muted); font-size: 10px; }
+.card-pin {
+  position: absolute; top: 3px; right: 3px; padding: 0 4px;
+  background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px;
+}
+.card-pin:hover, .card.pinned .card-pin { color: var(--active); }
+
+/* Tier is a class on the card. CSS decides what shows; JS only sets the class. */
+.card.tier-block .card-sig,
+.card.tier-block .card-summary,
+.card.tier-block .card-badges,
+.card.tier-block .card-body,
+.card.tier-block .card-pin { display: none; }
+.card.tier-block .card-name { font-size: 15px; }
+
+.card.tier-card .card-body { display: none; }
+
+.card.tier-source { box-shadow: var(--shadow); }
+.card.tier-source .card-summary { display: none; }
+
+/* A pinned card holds source tier at any zoom and floats above its neighbours. */
+.card.pinned { box-shadow: var(--shadow); }
+
+/* ---- source ---- */
+
+.card-body {
+  margin: 0; padding: 4px 0 6px;
+  border-top: 1px solid var(--line);
+  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre; overflow: auto; max-height: 420px;
+  tab-size: 4;
+}
+.src-line { display: flex; min-height: 16px; }
+.src-gutter {
+  flex: none; width: 44px; padding-right: 6px; text-align: right;
+  color: var(--muted); user-select: none;
+}
+.src-gutter .mark { margin-right: 3px; }
+.src-text { flex: 1; padding-right: 8px; }
+.src-line.call-site { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.src-line.call-site .src-text { text-decoration: underline dotted var(--accent); }
+.src-line.step-active { background: color-mix(in srgb, var(--active) 22%, transparent); }
+.card-truncated { padding: 3px 8px; color: var(--muted); font-style: italic; }
+
+.kw { color: var(--kw); }
+.str { color: var(--str); }
+.num { color: var(--num); }
+.com { color: var(--com); font-style: italic; }
+.def { color: var(--def); font-weight: 600; }
+.call { color: var(--call); }
+
+/* ---- edges ---- */
+
+#edges path { fill: none; stroke-width: 1.4; }
+#edges path.resolved { stroke: var(--resolved); }
+#edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; }
+#edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 2 4; }
+#edges path.dimmed { opacity: 0.08; }
+#edges path.active { stroke: var(--active); stroke-width: 2.6; }
+#edges .weight { fill: var(--muted); font-size: 10px; }
+
+/* ---- panels ---- */
+
+#panel, #info-panel {
+  position: absolute; top: 0; right: 0; bottom: 0; width: 330px;
+  padding: 14px; overflow: auto; z-index: 4;
+  background: var(--surface); border-left: 1px solid var(--line);
+}
+#panel[hidden], #info-panel[hidden] { display: none; }
+#panel h2 { margin: 0 0 2px; font-size: 15px; word-break: break-all; }
+#panel .sig, #panel .path { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
+#panel h3 { margin: 14px 0 5px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+#panel ul { margin: 0; padding: 0; list-style: none; }
+#panel li a { color: var(--accent); cursor: pointer; text-decoration: none; }
+#panel li a:hover { text-decoration: underline; }
+#panel .actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+#info-panel table { width: 100%; border-collapse: collapse; }
+#info-panel td { padding: 2px 0; }
+#info-panel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+#info-panel .skipped { color: var(--muted); font-size: 11px; word-break: break-all; }
+
+#breadcrumb, #caption {
+  position: absolute; left: 10px; padding: 5px 10px; border-radius: 7px;
+  background: var(--surface); border: 1px solid var(--line); z-index: 3;
+}
+#breadcrumb { top: 10px; max-width: 60%; }
+#breadcrumb .sep { color: var(--muted); margin: 0 5px; }
+#breadcrumb .current { color: var(--active); font-weight: 650; }
+#caption { bottom: 10px; }
+#caption .tag {
+  margin-left: 6px; padding: 0 5px; border-radius: 5px;
+  background: var(--surface-2); color: var(--muted); font-size: 10px;
+}
+#breadcrumb[hidden], #caption[hidden] { display: none; }
+
+#statusbar {
+  padding: 4px 10px; background: var(--surface);
+  border-top: 1px solid var(--line); color: var(--muted); font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #world { transition: none !important; }
+}

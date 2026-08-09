@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>codecards</title>
+<style>/*__CODECARDS_CSS__*/</style>
+</head>
+<body>
+<div id="app">
+  <header id="toolbar">
+    <span class="brand">codecards</span>
+    <input id="search" type="search" placeholder="Search functions..." autocomplete="off">
+    <select id="entry-select" aria-label="Entry point"></select>
+    <div id="transport" hidden>
+      <button id="step-back" title="Previous step (left arrow)">&#9664;</button>
+      <button id="play" title="Play or pause (space)">Play</button>
+      <button id="step-fwd" title="Next step (right arrow)">&#9654;</button>
+      <button id="stop" title="Exit the walkthrough">Stop</button>
+      <select id="speed" aria-label="Playback speed">
+        <option value="1600">Slow</option>
+        <option value="900" selected>Normal</option>
+        <option value="400">Fast</option>
+      </select>
+    </div>
+    <label class="toggle"><input type="checkbox" id="show-inferred" checked> Inferred</label>
+    <label class="toggle"><input type="checkbox" id="show-ambiguous"> Ambiguous</label>
+    <label class="toggle" id="focus-control" hidden>
+      Focus <input type="range" id="focus-hops" min="1" max="5" value="1">
+      <span id="focus-hops-value">1</span>
+    </label>
+    <button id="info" title="What this graph does and does not know">&#9432;</button>
+    <button id="theme" title="Toggle light and dark">&#9681;</button>
+  </header>
+
+  <main id="stage">
+    <!-- The viewport clips; #world is transformed; cards and the edge layer
+         live inside #world and therefore share one coordinate system. -->
+    <div id="viewport">
+      <div id="world">
+        <svg id="edges" aria-hidden="true"></svg>
+        <div id="cards"></div>
+      </div>
+    </div>
+    <div id="zoom-readout" aria-live="off"></div>
+    <div id="breadcrumb" hidden></div>
+    <div id="caption" hidden></div>
+    <aside id="panel" hidden></aside>
+    <aside id="info-panel" hidden></aside>
+  </main>
+
+  <footer id="statusbar"></footer>
+</div>
+
+<script>/*__CODECARDS_VENDOR__*/</script>
+<script>/*__CODECARDS_DATA__*/</script>
+<script>/*__CODECARDS_APP__*/</script>
+</body>
+</html>
