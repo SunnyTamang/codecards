@@ -555,12 +555,16 @@ class _Resolver:
             isinstance(node.value, ast.Call)
             and isinstance(node.value.func, ast.Name)
             and node.value.func.id == "super"
-            and not node.value.args
-            and not node.value.keywords
             and "super" not in context.shadowed
             and "super" not in context.names
             and context.class_qualname
         ):
+            if node.value.args or node.value.keywords:
+                # We know precisely which class the call SKIPS past, so the
+                # name-index fallback would be free to guess that very class.
+                # Refusing outright is the only honest answer: this is
+                # positive evidence, not absence of evidence.
+                return None, Confidence.UNRESOLVED, ()
             for base in self.table.mro(context.class_qualname)[1:]:
                 candidate = f"{base}.{attribute}"
                 if candidate in self.table.definitions:
@@ -574,9 +578,14 @@ class _Resolver:
         if (
             isinstance(node.value, ast.Name)
             and node.value.id in ("self", "cls")
-            and node.value.id not in context.reassigned
             and context.class_qualname
         ):
+            if node.value.id in context.reassigned:
+                # `self` was rebound in this body, so it provably no longer
+                # names the instance the method was called on. The name-index
+                # fallback would happily guess a method of this very class,
+                # which is the one answer we have evidence against.
+                return None, Confidence.UNRESOLVED, ()
             for base in self.table.mro(context.class_qualname):
                 candidate = f"{base}.{attribute}"
                 if candidate in self.table.definitions:

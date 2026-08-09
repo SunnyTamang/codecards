@@ -575,12 +575,11 @@ def test_super_call_with_explicit_arguments_does_not_resolve(tmp_path):
         "\n"
         "class C(B):\n    def go(self):\n        super(B, self).go()\n"
     )})
-    # Falling through to the name-index fallback, "go" is defined by
-    # three classes in this fixture (A, B, C), so it lands at AMBIGUOUS - the
-    # invariant this test protects (never a confident, specific edge to
-    # m.B.go) still holds, just via a different honest tier than UNRESOLVED.
+    # super(B, self) tells us exactly which class the call SKIPS, so the
+    # name-index fallback is suppressed here rather than being free to guess
+    # that very class. Positive evidence, not absence of evidence.
     assert ("m.C.go", "m.B.go") not in result
-    assert result[("m.C.go", None)] is Confidence.AMBIGUOUS
+    assert result[("m.C.go", None)] is Confidence.UNRESOLVED
 
 
 def test_bare_super_call_still_resolves_to_the_base_method(tmp_path):
@@ -609,11 +608,12 @@ def test_self_reassignment_prevents_confident_mro_resolution(tmp_path):
         "        self.retry()\n"
         "    def retry(self):\n        pass\n"
     )})
-    # The MRO path must not fire (self no longer names the instance), but
-    # "retry" is still a globally unique name in this fixture, so the
-    # fallback guesses it honestly at INFERRED rather than the RESOLVED tier
-    # the MRO path would have produced.
-    assert result[("m.H.send", "m.H.retry")] is Confidence.INFERRED
+    # `self` was rebound, so it provably no longer names the instance. The
+    # name-index fallback is suppressed rather than left free to guess a
+    # method of this very class, which is the one answer we have evidence
+    # against.
+    assert ("m.H.send", "m.H.retry") not in result
+    assert result[("m.H.send", None)] is Confidence.UNRESOLVED
 
 
 def test_call_through_a_same_module_class_receiver_resolves(tmp_path):
