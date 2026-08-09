@@ -5,9 +5,17 @@ who can see the resolution rate knows how far to trust the picture.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from .extract.discovery import SkippedFile
 from .graph.model import CONFIDENCE_ORDER
+
+if TYPE_CHECKING:
+    # Importing this at runtime would be circular: `extract/__init__` returns
+    # an AnalysisReport and so imports this module, while reaching
+    # `extract.discovery` initialises the `extract` package first. Only the
+    # annotation needs the name, and `from __future__ import annotations`
+    # keeps annotations unevaluated. tests/test_imports.py pins this.
+    from .extract.discovery import SkippedFile
 
 
 @dataclass
