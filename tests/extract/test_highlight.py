@@ -5,7 +5,7 @@ import sys
 import pytest
 
 from codecards.extract.highlight import (
-    CALL, COMMENT, DEFINITION, KEYWORD, MAX_SOURCE_LINES, NUMBER, OPERATOR, STRING,
+    CALL, COMMENT, DEFINITION, KEYWORD, MAX_SOURCE_LINES, NUMBER, STRING,
     highlight, prepare,
 )
 
@@ -29,9 +29,8 @@ def test_empty_source_yields_nothing():
 
 def test_keywords_definitions_and_calls_are_distinguished():
     assert spans("def send(x):\n    return other(x)\n") == [
-        [(KEYWORD, "def"), (DEFINITION, "send"), (OPERATOR, "("), (OPERATOR, ")"),
-         (OPERATOR, ":")],
-        [(KEYWORD, "return"), (CALL, "other"), (OPERATOR, "("), (OPERATOR, ")")],
+        [(KEYWORD, "def"), (DEFINITION, "send")],
+        [(KEYWORD, "return"), (CALL, "other")],
     ]
 
 
@@ -39,68 +38,74 @@ def test_an_indented_method_slice_lexes_and_columns_stay_aligned():
     """The case that matters: extracted methods are always indented."""
     source = "    def send(self):\n        self.retry()\n"
     assert spans(source) == [
-        [(KEYWORD, "def"), (DEFINITION, "send"), (OPERATOR, "("), (OPERATOR, ")"),
-         (OPERATOR, ":")],
-        [(OPERATOR, "."), (CALL, "retry"), (OPERATOR, "("), (OPERATOR, ")")],
+        [(KEYWORD, "def"), (DEFINITION, "send")],
+        [(CALL, "retry")],
     ]
 
 
 def test_a_tab_indented_slice_keeps_its_columns():
     assert spans("\tdef f(self):\n\t\treturn 1\n") == [
-        [(KEYWORD, "def"), (DEFINITION, "f"), (OPERATOR, "("), (OPERATOR, ")"),
-         (OPERATOR, ":")],
+        [(KEYWORD, "def"), (DEFINITION, "f")],
         [(KEYWORD, "return"), (NUMBER, "1")],
     ]
 
 
 def test_comments_and_numbers():
     assert spans("x = 3.14e-2  # tau-ish\n") == [
-        [(OPERATOR, "="), (NUMBER, "3.14e-2"), (COMMENT, "# tau-ish")],
+        [(NUMBER, "3.14e-2"), (COMMENT, "# tau-ish")],
     ]
 
 
 def test_a_triple_quoted_string_produces_a_run_on_every_line_it_covers():
     source = 'def g():\n    s = """one\ntwo\nthree"""\n'
-    assert spans(source)[1] == [(OPERATOR, "="), (STRING, '"""one')]
+    assert spans(source)[1] == [(STRING, '"""one')]
     assert spans(source)[2] == [(STRING, "two")]
     assert spans(source)[3] == [(STRING, 'three"""')]
 
 
 def test_escaped_quotes_do_not_end_the_string():
-    assert spans("b = 'it\\'s'\n") == [[(OPERATOR, "="), (STRING, "'it\\'s'")]]
+    assert spans("b = 'it\\'s'\n") == [[(STRING, "'it\\'s'")]]
 
 
 def test_decorators_and_async():
     assert spans('@app.route("/x")\nasync def h(r):\n    await go()\n') == [
-        [(OPERATOR, "@"), (OPERATOR, "."), (CALL, "route"), (OPERATOR, "("),
-         (STRING, '"/x"'), (OPERATOR, ")")],
-        [(KEYWORD, "async"), (KEYWORD, "def"), (DEFINITION, "h"), (OPERATOR, "("),
-         (OPERATOR, ")"), (OPERATOR, ":")],
-        [(KEYWORD, "await"), (CALL, "go"), (OPERATOR, "("), (OPERATOR, ")")],
+        [(CALL, "route"), (STRING, '"/x"')],
+        [(KEYWORD, "async"), (KEYWORD, "def"), (DEFINITION, "h")],
+        [(KEYWORD, "await"), (CALL, "go")],
     ]
 
 
 def test_a_plain_identifier_gets_no_run():
-    """Unstyled text is the gap between runs, not a run of its own."""
-    assert spans("value = other\n") == [[(OPERATOR, "=")]]
+    """Unstyled text is the gap between runs, not a run of its own.
+
+    With operators unstyled too, this whole line produces nothing at all."""
+    assert spans("value = other\n") == [[]]
 
 
 def test_soft_keywords_are_left_unstyled():
     """`match` is a name that may be a variable. Guessing would be wrong sometimes."""
-    assert spans("match value:\n") == [[(OPERATOR, ":")]]
+    assert spans("match value:\n") == [[]]
 
 
 @pytest.mark.skipif(sys.version_info < (3, 12),
                     reason="f-strings became multiple tokens in 3.12")
-def test_f_string_interpolations_are_highlighted_on_312_and_later():
-    classes = {cls for cls, _ in spans('m = f"hi {name}"\n')[0]}
-    assert STRING in classes and OPERATOR in classes
+def test_f_string_interpolations_are_not_painted_as_string_on_312_and_later():
+    """From 3.12 tokenize decomposes an f-string, so the interpolated
+    expression falls outside the string runs and renders as ordinary code."""
+    source = 'm = f"hi {name}"'
+    runs = highlight(source + "\n")[0]
+    assert all(cls == STRING for _c, _l, cls in runs)
+    assert len(runs) > 1, "3.12+ should split the literal around the interpolation"
+    covered = {i for col, length, _cls in runs for i in range(col, col + length)}
+    assert not (set(range(source.index("name"), source.index("name") + 4)) & covered)
 
 
 @pytest.mark.skipif(sys.version_info >= (3, 12),
                     reason="f-strings are a single token before 3.12")
 def test_f_string_is_one_string_before_312():
-    assert spans('m = f"hi {name}"\n') == [[(OPERATOR, "="), (STRING, 'f"hi {name}"')]]
+    """Before 3.12 the whole literal is a single STRING token, interpolation
+    included. Both behaviours are correct; only the fidelity differs."""
+    assert spans('m = f"hi {name}"\n') == [[(STRING, 'f"hi {name}"')]]
 
 
 def test_unlexable_source_yields_empty_runs_rather_than_raising():

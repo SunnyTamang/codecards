@@ -21,7 +21,11 @@ NUMBER = "num"
 COMMENT = "com"
 DEFINITION = "def"
 CALL = "call"
-OPERATOR = "op"
+
+# Operators are deliberately NOT a class. Punctuation was 63% of all runs on
+# real code while covering almost no characters, costing 58% of the token
+# payload for the least visual value in the set. It renders in the default
+# text colour, which is what most editor themes do anyway.
 
 #: Above this, a callable embeds truncated. One generated 12,000-line function
 #: should not dominate the output file.
@@ -39,7 +43,6 @@ _SIMPLE = {
     tokenize.COMMENT: COMMENT,
     tokenize.STRING: STRING,
     tokenize.NUMBER: NUMBER,
-    tokenize.OP: OPERATOR,
 }
 
 # f-string tokens exist only on 3.12+. Before that an f-string arrives as a
