@@ -21,6 +21,18 @@ CC.view = (function () {
   let cardLayer = null;
   let mounted = new Map();
   let selectedId = null;
+  let tierFilter = new Set(['resolved', 'inferred']);
+
+  function setTierFilter(tiers) {
+    tierFilter = new Set(tiers);
+    return layout(state.collapsed);
+  }
+
+  function drawnEdges() {
+    return state.data.edges.filter(function (edge) {
+      return tierFilter.has(edge.confidence);
+    });
+  }
 
   function toggle(id) {
     const next = new Set(state.collapsed);
@@ -236,10 +248,10 @@ CC.view = (function () {
   function layout(collapsed, options) {
     state.collapsed = collapsed;
     state.visible = computeVisible(collapsed);
-    state.edges = CC.collapse.aggregate(state.data.edges, state.data.parentIndex,
+    state.edges = CC.collapse.aggregate(drawnEdges(), state.data.parentIndex,
                                         state.visible, collapsed);
     state.internalCounts = CC.collapse.internalCounts(
-      state.data.edges, state.data.parentIndex, state.visible, collapsed);
+      drawnEdges(), state.data.parentIndex, state.visible, collapsed);
 
     CC.view.ready = false;
     return elk.layout(buildElkTree(collapsed, state.visible)).then(function (result) {
@@ -300,5 +312,6 @@ CC.view = (function () {
     toggle: toggle,
     select: select,
     selected: selected,
+    setTierFilter: setTierFilter,
   };
 })();

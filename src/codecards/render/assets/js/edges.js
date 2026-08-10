@@ -20,7 +20,11 @@ CC.edges = (function () {
       marker.setAttribute('orient', 'auto-start-reverse');
       const head = document.createElementNS(NS, 'path');
       head.setAttribute('d', 'M0,0 L8,4 L0,8 z');
-      head.setAttribute('class', 'head ' + tier);
+      // A bare tier name here would collide with `#edges path.<tier>`
+      // selectors used to count or style real edges, since the marker's
+      // <path> lives in the same document tree even though it only renders
+      // inside the arrowhead. Prefix it so the two never match each other.
+      head.setAttribute('class', 'marker-head-' + tier);
       marker.appendChild(head);
       defs.appendChild(marker);
     });

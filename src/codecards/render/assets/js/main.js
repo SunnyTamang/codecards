@@ -1,4 +1,4 @@
-// Boot. a separate change grows this into full wiring.
+// Boot: canvas first, then the graph, then the toolbar.
 function __cc_boot() {
   let repaint = null;
   CC.canvas.init({
@@ -16,7 +16,9 @@ function __cc_boot() {
       });
     },
   });
-  CC.view.init(window.CODECARDS_DATA);
+  CC.view.init(window.CODECARDS_DATA).then(function () {
+    CC.controls.init();
+  });
 }
 
 document.addEventListener('DOMContentLoaded', __cc_boot);
