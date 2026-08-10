@@ -35,6 +35,8 @@ CC.view = (function () {
     });
     CC.panel.show(id);
     CC.focus.set(id);
+    // Selecting opens the card, which moves where its edges leave from.
+    paint();
   }
 
   function selected() { return selectedId; }
@@ -207,6 +209,9 @@ CC.view = (function () {
         if (!site) return null;
         const row = card.querySelector('.src-line[data-line="' + site.line + '"]');
         if (!row) return null;
+        // The body is only laid out while the card is open. A hidden row
+        // measures zero and would anchor the edge to the card's top corner.
+        if (!row.getClientRects().length) return null;
         const box = state.boxes[edge.source];
         const cardRect = card.getBoundingClientRect();
         const rowRect = row.getBoundingClientRect();

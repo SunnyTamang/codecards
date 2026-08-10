@@ -35,8 +35,16 @@ CC.zoom = (function () {
     });
   }
 
-  function pin(id) { pinned.add(id); apply(); }
-  function unpin(id) { pinned.delete(id); apply(); }
+  // Which cards are open decides where edges leave from, so the SVG has to
+  // be redrawn when that changes. paint() calls apply() itself, and apply()
+  // never calls paint(), so there is no loop.
+  function refresh() {
+    apply();
+    if (CC.view && CC.view.paint) CC.view.paint();
+  }
+
+  function pin(id) { pinned.add(id); refresh(); }
+  function unpin(id) { pinned.delete(id); refresh(); }
   function isPinned(id) { return pinned.has(id); }
   function toggle(id) { return pinned.has(id) ? (unpin(id), false) : (pin(id), true); }
 

@@ -145,23 +145,36 @@ html, body {
 /* Layout reserved a card-tier box, and graph-view sets that height inline.
    Source tier has to escape it, hence !important: the card grows in place
    over its neighbours rather than forcing a relayout. */
-/* Source-tier cards overlap by design, growing over their neighbours rather
-   than forcing a relayout. Raising the one under the pointer keeps that
-   navigable: whatever you point at is readable. */
-.card.tier-source:hover, .card.pinned:hover { z-index: 6; }
+/* Source tier means a card MAY show its code, not that it must.
+   Expanding every card the moment the zoom crossed 0.8 buried the graph
+   under a pile of overlapping panels, which is worse than not showing code
+   at all. A card opens when you point at it, select it, or pin it, so only
+   the one you are reading takes the space. */
+.card.tier-source > .card-body { display: none; }
+/* :not(.container) throughout. An expanded container already shows its
+   members as child cards, so opening its own source draws the whole class
+   body on top of them. */
+.card.tier-source:not(.container):hover > .card-body,
+.card.tier-source:not(.container).selected > .card-body,
+.card.pinned:not(.container) > .card-body { display: block; }
 
-.card.tier-source {
+.card.tier-source:not(.container):hover,
+.card.tier-source:not(.container).selected,
+.card.pinned:not(.container) {
+  /* Escape the card-sized box layout reserved, in both axes: clipped to it
+     the body shows 64px of code and cuts every line at 260px wide. Growing
+     in place over neighbours is deliberate; it avoids a relayout. */
   height: auto !important;
   min-height: 0;
-  /* Also escape the reserved WIDTH. A card clipped to its layout box cuts
-     every line mid-statement, which defeats the point of showing source. */
   width: max-content !important;
   min-width: 260px;
   max-width: 900px;
-  z-index: 2;
+  z-index: 6;
   box-shadow: var(--shadow);
 }
-.card.tier-source .card-summary { display: none; }
+.card.tier-source:not(.container):hover .card-summary,
+.card.tier-source:not(.container).selected .card-summary,
+.card.pinned:not(.container) .card-summary { display: none; }
 
 /* A pinned card holds source tier at any zoom and floats above its neighbours. */
 .card.pinned { box-shadow: var(--shadow); }

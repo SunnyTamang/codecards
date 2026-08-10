@@ -121,6 +121,10 @@ def test_an_edge_leaves_from_its_calling_line_at_source_tier(graph_page):
     graph_page.evaluate("CC.view.layout(new Set())")
     graph_page.wait_for_function("CC.view.ready === true")
     graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
+    # Source tier only opens a card you are pointing at, have selected, or
+    # have pinned, so an edge is line-anchored exactly when its source card is
+    # actually showing the line.
+    graph_page.evaluate("CC.zoom.pin('app.cli.main')")
     graph_page.wait_for_timeout(200)
 
     got = graph_page.evaluate("""() => {
@@ -185,3 +189,59 @@ def test_source_tier_is_absent_when_no_source_was_embedded(
     page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 2.5})")
     page.wait_for_timeout(80)
     assert tier_of(page, "app.cli") == "card"
+
+def test_zooming_in_does_not_open_every_card_at_once(graph_page):
+    """Reported from the demo: crossing the source threshold expanded every
+    visible card simultaneously and they piled on top of each other, which
+    buried the graph. Source tier means a card MAY open, not that it must."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.5})")
+    graph_page.wait_for_timeout(200)
+
+    open_bodies = graph_page.evaluate(
+        "Array.from(document.querySelectorAll('#cards .card .card-body'))"
+        ".filter(b => b.getClientRects().length).length")
+    assert open_bodies == 0
+
+
+def test_selecting_or_pinning_opens_one_card(graph_page):
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.5})")
+    graph_page.evaluate("CC.zoom.pin('app.cli.main')")
+    graph_page.wait_for_timeout(200)
+
+    open_ids = graph_page.evaluate(
+        "Array.from(document.querySelectorAll('#cards .card'))"
+        ".filter(c => c.querySelector('.card-body')"
+        "          && c.querySelector('.card-body').getClientRects().length)"
+        ".map(c => c.dataset.id)")
+    assert open_ids == ["app.cli.main"]
+
+
+def test_hovering_a_card_opens_it(graph_page):
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.5})")
+    graph_page.wait_for_timeout(200)
+
+    card = graph_page.locator(".card[data-id='app.cli.main']")
+    card.hover()
+    graph_page.wait_for_timeout(150)
+    assert card.locator(".card-body").is_visible()
+
+def test_an_expanded_container_never_opens_its_own_source(graph_page):
+    """A class card that has been opened already shows its methods as child
+    cards. Drawing the whole class body over them buries them."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.5})")
+    graph_page.evaluate("CC.zoom.pin('app.mail.Mailer')")
+    graph_page.wait_for_timeout(200)
+
+    container = graph_page.locator(".card[data-id='app.mail.Mailer']")
+    assert "container" in container.get_attribute("class")
+    assert container.locator("> .card-body").count() == 0 or not (
+        container.locator("> .card-body").is_visible())
+
