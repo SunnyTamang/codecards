@@ -100,3 +100,31 @@ other way and guessing would contradict it:
 The walkthrough ordering is lexical, not executional: a call inside an `if`
 still gets a step. Steps sitting inside a conditional or a loop are labelled as
 such. This is a map of what the code *can* do, not a trace of one run.
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+python -m playwright install chromium
+python -m pytest
+```
+
+Browser tests need Chromium; they skip cleanly if Playwright is absent.
+
+**The resolution ratchet.** `tests/test_corpus.py` runs codecards over its own
+source and asserts the share of calls it resolves confidently stays above
+`MIN_RESOLUTION_RATE`. Raise that constant when you improve the resolver. Never
+lower it to make a build pass: a drop means resolution regressed, and the number
+is the only thing that will tell you.
+
+**The golden cross-checks.** Two algorithms exist in both Python and JavaScript:
+collapse and the walkthrough. The Python versions are the specification, and the
+generated page carries one golden output of each. `tests/render/test_goldens.py`
+asserts the browser reproduces them. If it fails, work out which side is wrong;
+do not regenerate the golden.
+
+**See the tool's view of itself:**
+
+```bash
+python -m codecards src/codecards -o self.html --open
+```

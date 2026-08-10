@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the floor; 3.12 changed f-string tokenisation, so it is not
+        # optional coverage.
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest -v
+
+  # Lint only, no formatter check: `ruff format` would rewrite most of the
+  # tree for no behavioural gain. `ruff check` is what catches real problems,
+  # and the ruleset is pinned in pyproject.toml so a new ruff release cannot
+  # turn CI red on its own.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python -m ruff check src tests
+
+
+  dogfood:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: python -m codecards src/codecards -o codecards.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codecards-self-graph
+          path: codecards.html
