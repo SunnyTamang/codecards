@@ -51,10 +51,14 @@ arrowheads.
 | --- | --- |
 | Far out | Coloured blocks and names. The architecture, nothing else |
 | Middle | Name, signature, docstring line, and fan-in / fan-out counts |
-| Close in | The real source, syntax highlighted, with line numbers |
+| Close in | Point at a card and it opens its real source, syntax highlighted, with line numbers |
 
-Pin a card to hold it at full source while you zoom back out, so you can read
-one function without losing sight of the whole map.
+Only the card you point at, select, or pin opens its source. Opening every card
+at once buries the graph under overlapping panels, so zoom decides how much
+detail is *available* and you decide which card spends the space.
+
+Pin a card to hold it open while you zoom back out, so you can read one
+function without losing sight of the whole map.
 
 At source zoom, a call marks the line that makes it, and the gutter says whether
 that call sits inside a conditional or a loop. Knowing a call happens only
