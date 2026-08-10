@@ -72,11 +72,29 @@ def test_stepping_forward_moves_the_highlight(graph_page):
 
 
 def test_the_breadcrumb_shows_the_call_stack(graph_page):
+    """Entries are shortened to the last two segments, so the breadcrumb stays
+    readable on deeply nested qualnames."""
     graph_page.evaluate("CC.player.start('app.cli.main')")
     graph_page.evaluate("CC.player.next(); CC.player.next()")
     graph_page.wait_for_function("CC.player.state.index === 2")
-    assert "app.cli.main" in graph_page.locator("#breadcrumb").inner_text()
-    assert "Mailer.send" in graph_page.locator("#breadcrumb").inner_text()
+    text = graph_page.locator("#breadcrumb").inner_text()
+    assert "cli.main" in text
+    assert "Mailer.send" in text
+    assert text.index("cli.main") < text.index("Mailer.send"), "stack is out of order"
+
+
+def test_a_rapid_double_step_does_not_leave_a_stale_breadcrumb(graph_page):
+    """goTo sets the index synchronously while draw is async, and how long a
+    draw takes depends on whether it has to run a real layout. Without
+    serialisation the slower first draw finished last and overwrote the DOM
+    with an earlier step than the index claimed."""
+    graph_page.evaluate("CC.player.start('app.cli.main')")
+    graph_page.evaluate("CC.player.next(); CC.player.next()")
+    graph_page.wait_for_function("CC.player.state.index === 2")
+    expected = graph_page.evaluate(
+        "CC.player.state.steps[2].stack.concat([CC.player.state.steps[2].calleeId])"
+        ".map(id => id.split('.').slice(-2).join('.')).join('->')")
+    assert graph_page.locator("#breadcrumb").inner_text().replace(" ", "") == expected
 
 
 def test_the_caption_names_the_site_and_marks_loop_and_conditional(graph_page):
@@ -130,3 +148,26 @@ def test_stopping_clears_the_highlights_and_the_pins(graph_page):
 def test_an_entry_point_with_no_calls_reports_rather_than_showing_nothing(graph_page):
     graph_page.evaluate("CC.player.start('app.mail.Mailer.retry')")
     assert "no calls" in graph_page.locator("#caption").inner_text().lower()
+
+def test_a_step_highlights_its_line_even_when_the_caller_starts_off_screen(graph_page):
+    """The reproduction that mattered: pre-expand so reveal() is a no-op and
+    does not refit the view, then zoom in and pan far away. The caller is
+    culled, so it has no DOM at all, and marking before panning highlighted
+    nothing and never recovered."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: -9000, y: -9000, scale: 1.4})")
+    graph_page.wait_for_timeout(150)
+    assert graph_page.locator(".card[data-id='app.cli.main']").count() == 0, (
+        "precondition: the caller must start culled")
+
+    graph_page.evaluate("CC.player.start('app.cli.main')")
+    graph_page.wait_for_function("CC.player.state.index === 0")
+    graph_page.wait_for_timeout(400)
+
+    card = graph_page.locator(".card[data-id='app.cli.main']")
+    assert card.count() == 1, "the pan should have mounted the caller"
+    active = card.locator(".src-line.step-active")
+    assert active.count() == 1
+    assert active.get_attribute("data-line") == "5"
+

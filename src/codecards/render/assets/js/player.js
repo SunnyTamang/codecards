@@ -7,6 +7,9 @@
 window.CC = window.CC || {};
 
 CC.player = (function () {
+  //: Zoom the walkthrough opens at, if the camera is further out.
+  const READABLE_SCALE = 1;
+
   const state = { steps: [], index: -1, playing: false, entryId: null };
   let timer = null;
   const autoPinned = new Set();
@@ -40,7 +43,7 @@ CC.player = (function () {
         if (next.delete(ancestor)) changed = true;
       });
     });
-    return changed ? CC.view.layout(next) : Promise.resolve();
+    return changed ? CC.view.layout(next, { refit: false }) : Promise.resolve();
   }
 
   function clearMarks() {
@@ -55,36 +58,67 @@ CC.player = (function () {
     });
   }
 
+  // Draws are serialised and the latest wins.
+  //
+  // goTo() sets state.index synchronously but draw() is asynchronous, and how
+  // long it takes depends on whether reveal() has to run a real ELK layout.
+  // Two quick steps could therefore finish out of order, leaving the DOM
+  // showing an earlier step than state.index claims. `generation` discards any
+  // draw that has been superseded while it was waiting.
+  let generation = 0;
+  let queue = Promise.resolve();
+
   function draw() {
     const step = state.steps[state.index];
     if (!step) return Promise.resolve();
-    return reveal([step.callerId, step.calleeId]).then(function () {
-      clearMarks();
-      autoPinned.forEach(function (id) { CC.zoom.unpin(id); });
-      autoPinned.clear();
+    const mine = ++generation;
 
-      const caller = document.querySelector('.card[data-id="' + step.callerId + '"]');
-      const callee = document.querySelector('.card[data-id="' + step.calleeId + '"]');
-      if (caller) caller.classList.add('active');
-      if (callee) callee.classList.add('active');
-
-      CC.zoom.pin(step.callerId);
-      autoPinned.add(step.callerId);
-
-      const line = document.querySelector(
-        '.card[data-id="' + step.callerId + '"] .src-line[data-line="' + step.line + '"]');
-      if (line) line.classList.add('step-active');
-
-      const path = document.querySelector(
-        '#edges path[data-edge="' + step.callerId + '->' + step.calleeId + '"]');
-      if (path) path.classList.add('active');
-
-      const box = CC.view.boxes()[step.callerId];
-      if (box) CC.canvas.panTo(box.x + box.w / 2, box.y + box.h / 2, { animate: true });
-
-      renderBreadcrumb(step);
-      renderCaption(step);
+    queue = queue.then(function () {
+      if (mine !== generation) return null;
+      return reveal([step.callerId, step.calleeId]).then(function () {
+        if (mine !== generation) return null;
+        // Pan BEFORE marking. A card outside the viewport is culled and has
+        // no DOM at all, so querySelector finds nothing and the highlight is
+        // silently skipped, permanently: nothing re-applies it once the pan
+        // later mounts the card.
+        const box = CC.view.boxes()[step.callerId];
+        if (!box) return null;
+        return CC.canvas.panTo(box.x + box.w / 2, box.y + box.h / 2,
+                               { animate: true });
+      }).then(function () {
+        if (mine !== generation) return;
+        mark(step);
+      });
     });
+    return queue;
+  }
+
+  function mark(step) {
+    clearMarks();
+    autoPinned.forEach(function (id) { CC.zoom.unpin(id); });
+    autoPinned.clear();
+
+    // Pinning opens the card and repaints, so it has to happen before
+    // anything queries the DOM.
+    CC.zoom.pin(step.callerId);
+    autoPinned.add(step.callerId);
+    CC.view.paint();
+
+    const caller = document.querySelector('.card[data-id="' + step.callerId + '"]');
+    const callee = document.querySelector('.card[data-id="' + step.calleeId + '"]');
+    if (caller) caller.classList.add('active');
+    if (callee) callee.classList.add('active');
+
+    const line = document.querySelector(
+      '.card[data-id="' + step.callerId + '"] .src-line[data-line="' + step.line + '"]');
+    if (line) line.classList.add('step-active');
+
+    const path = document.querySelector(
+      '#edges path[data-edge="' + step.callerId + '->' + step.calleeId + '"]');
+    if (path) path.classList.add('active');
+
+    renderBreadcrumb(step);
+    renderCaption(step);
   }
 
   function renderBreadcrumb(step) {
@@ -164,6 +198,12 @@ CC.player = (function () {
     state.steps = CC.trace.build(
       CC.view.state.data.edges, entryId, CC.view.state.data.meta.maxDepth);
     document.getElementById('transport').hidden = false;
+    // A walkthrough is for reading the line that makes each call, so make
+    // sure the camera is close enough to read one before the first step.
+    const view = CC.canvas.getView();
+    if (view.scale < READABLE_SCALE) {
+      CC.canvas.setView({ x: view.x, y: view.y, scale: READABLE_SCALE });
+    }
     if (!state.steps.length) {
       const host = document.getElementById('caption');
       host.replaceChildren(document.createTextNode(

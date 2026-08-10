@@ -229,7 +229,11 @@ CC.view = (function () {
     if (CC.focus && CC.focus.active()) CC.focus.apply();
   }
 
-  function layout(collapsed) {
+  // `options.refit === false` keeps the current camera. Refitting is right
+  // when the user expands something and wants to see the result, and wrong
+  // during a walkthrough, where it yanks the zoom out to the whole graph and
+  // makes the very line the step is pointing at unreadable.
+  function layout(collapsed, options) {
     state.collapsed = collapsed;
     state.visible = computeVisible(collapsed);
     state.edges = CC.collapse.aggregate(state.data.edges, state.data.parentIndex,
@@ -250,7 +254,8 @@ CC.view = (function () {
           bottom: Math.max(acc.bottom, box.y + box.h),
         };
       }, { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
-      if (extent.x !== Infinity) {
+      const refit = !(options && options.refit === false);
+      if (refit && extent.x !== Infinity) {
         CC.canvas.fit({ x: extent.x, y: extent.y,
                         w: extent.right - extent.x, h: extent.bottom - extent.y }, 40);
       }
