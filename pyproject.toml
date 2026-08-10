@@ -22,6 +22,11 @@ packages = ["src/codecards"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+# Import codecards from the source tree rather than relying on an editable
+# install. An install pins an absolute path, so moving or deleting the
+# checkout it pointed at breaks the suite with ModuleNotFoundError even
+# though the code is right there.
+pythonpath = ["src"]
 
 [tool.ruff]
 # Pinned explicitly. Without a config the rule set is whatever the installed
