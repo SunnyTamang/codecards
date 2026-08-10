@@ -12,7 +12,15 @@ hang off a pull request.
 ## Install
 
 ```bash
-pip install codecards
+pip install git+https://github.com/SunnyTamang/codecards.git
+```
+
+Or from a checkout:
+
+```bash
+git clone https://github.com/SunnyTamang/codecards.git
+cd codecards
+pip install .
 ```
 
 Requires Python 3.10 or newer. The analyzer has no runtime dependencies.
@@ -35,6 +43,7 @@ request.
 | `--max-depth N` | walkthrough depth cap (default: 15) |
 | `--open` | open the result in your browser |
 | `--quiet` | suppress the summary report |
+| `--version` | print the version and exit |
 
 ## Reading the graph
 
