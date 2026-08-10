@@ -127,30 +127,43 @@ CC.canvas = (function () {
     };
   }
 
+  // How far the pointer must travel before a press becomes a drag.
+  const DRAG_THRESHOLD = 4;
+
   function bindPointer() {
-    let panning = false;
+    let armed = false;     // pressed, but not yet moved enough to be a drag
+    let panning = false;   // actually dragging, pointer captured
+    let startX = 0;
+    let startY = 0;
     let lastX = 0;
     let lastY = 0;
 
     viewport.addEventListener('pointerdown', function (event) {
-      // Only drag from empty canvas or a card's chrome. Selecting code inside
-      // a card must not pan the view, or reading becomes impossible.
+      // Selecting code inside a card must not pan the view, or reading
+      // becomes impossible.
       if (event.target.closest('.card-body')) return;
-      // Nor may a drag start from a control. Capturing the pointer retargets
-      // the following pointerup and click to the viewport, so a real mouse
-      // click on the pin button never reached it, while a scripted
-      // element.click() did. That is why this needs a test driving the mouse.
       if (event.target.closest('button, a, input, select, textarea')) return;
       if (event.button !== 0) return;
-      panning = true;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      viewport.classList.add('panning');
-      viewport.setPointerCapture(event.pointerId);
+      armed = true;
+      startX = lastX = event.clientX;
+      startY = lastY = event.clientY;
     });
 
     viewport.addEventListener('pointermove', function (event) {
-      if (!panning) return;
+      if (!armed) return;
+      if (!panning) {
+        // Capture is deferred until the press is unambiguously a drag.
+        // Capturing on pointerdown retargets the following pointerup and
+        // click to the viewport, so no click ever reached a card: expanding,
+        // selecting and pinning were all dead on arrival, while scripted
+        // element.click() kept working and hid it.
+        const dx = event.clientX - startX;
+        const dy = event.clientY - startY;
+        if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return;
+        panning = true;
+        viewport.classList.add('panning');
+        viewport.setPointerCapture(event.pointerId);
+      }
       view.x += event.clientX - lastX;
       view.y += event.clientY - lastY;
       lastX = event.clientX;
@@ -159,6 +172,7 @@ CC.canvas = (function () {
     });
 
     function stop(event) {
+      armed = false;
       if (!panning) return;
       panning = false;
       viewport.classList.remove('panning');

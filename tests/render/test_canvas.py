@@ -132,3 +132,52 @@ def test_view_changes_notify_once_per_change(canvas_page):
                          " onViewChange: v => window.__seen.push(v.scale)})")
     canvas_page.evaluate("CC.canvas.zoomBy(1.2, 100, 100); CC.canvas.zoomBy(1.2, 100, 100)")
     assert len(canvas_page.evaluate("window.__seen")) == 2
+
+def test_a_click_reaches_a_card_rather_than_being_swallowed_by_panning(canvas_page):
+    """Capturing the pointer on pointerdown retargets the following click to
+    the viewport. That silently killed every card interaction while scripted
+    element.click() kept working, so this drives a real mouse."""
+    canvas_page.evaluate("""
+        const probe = document.createElement('div');
+        probe.id = 'click-probe';
+        probe.style.cssText = 'position:absolute;left:40px;top:40px;width:120px;height:60px';
+        window.__hits = 0;
+        probe.addEventListener('click', () => { window.__hits++; });
+        document.getElementById('cards').appendChild(probe);
+        void 0;
+    """)
+    box = canvas_page.locator("#click-probe").bounding_box()
+    canvas_page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    assert canvas_page.evaluate("window.__hits") == 1
+
+
+def test_a_press_that_barely_moves_is_still_a_click(canvas_page):
+    """Hands shake. A two pixel wobble must not become a pan."""
+    canvas_page.evaluate("""
+        const probe = document.createElement('div');
+        probe.id = 'jitter-probe';
+        probe.style.cssText = 'position:absolute;left:40px;top:40px;width:120px;height:60px';
+        window.__hits = 0;
+        probe.addEventListener('click', () => { window.__hits++; });
+        document.getElementById('cards').appendChild(probe);
+        void 0;
+    """)
+    before = canvas_page.evaluate("CC.canvas.getView()")
+    box = canvas_page.locator("#jitter-probe").bounding_box()
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    canvas_page.mouse.move(x, y)
+    canvas_page.mouse.down()
+    canvas_page.mouse.move(x + 2, y + 1)
+    canvas_page.mouse.up()
+    assert canvas_page.evaluate("window.__hits") == 1
+    assert canvas_page.evaluate("CC.canvas.getView()") == before
+
+
+def test_a_drag_past_the_threshold_still_pans(canvas_page):
+    before = canvas_page.evaluate("CC.canvas.getView()")
+    canvas_page.mouse.move(500, 400)
+    canvas_page.mouse.down()
+    canvas_page.mouse.move(430, 330)
+    canvas_page.mouse.up()
+    after = canvas_page.evaluate("CC.canvas.getView()")
+    assert after["x"] < before["x"] and after["y"] < before["y"]
