@@ -152,3 +152,26 @@ def test_an_empty_graph_paints_without_error(tmp_path, page):
     page.goto(out.as_uri())
     page.wait_for_function("window.CC && CC.view && CC.view.ready === true")
     assert errors == []
+
+def test_arrowheads_are_actually_visible(graph_page):
+    """`#edges path { fill: none }` applies to the marker paths in <defs> too,
+    so an arrowhead with no fill of its own renders as nothing at all. The
+    marker classes are prefixed to avoid colliding with the tier selectors
+    that style and count real edges, which is what removed their fill."""
+    got = graph_page.evaluate("""(() => {
+        return Array.from(document.querySelectorAll('#edges marker path')).map(h => {
+            const cs = getComputedStyle(h);
+            return {cls: h.getAttribute('class'), fill: cs.fill, stroke: cs.stroke};
+        });
+    })()""")
+    assert got, "no arrowhead markers were defined"
+    for head in got:
+        assert head["fill"] != "none", f"{head['cls']} has no fill and cannot be seen"
+
+
+def test_marker_paths_do_not_match_the_edge_tier_selectors(graph_page):
+    """A marker carrying a bare tier name inflates every count of drawn edges
+    at that tier, which made the confidence-toggle assertions unfalsifiable."""
+    for tier in ("resolved", "inferred", "ambiguous", "active"):
+        assert graph_page.locator(f"#edges marker path.{tier}").count() == 0
+

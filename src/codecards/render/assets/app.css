@@ -210,6 +210,14 @@ html, body {
 /* ---- edges ---- */
 
 #edges path { fill: none; stroke-width: 1.4; }
+/* Arrowheads are <path> elements inside <defs>, so the rule above applies to
+   them and leaves them with no fill. They also must not carry bare tier class
+   names, or they match the selectors below that style and count real edges.
+   Hence their own prefixed classes and their own fill. */
+#edges marker path { fill: var(--resolved); stroke: none; }
+#edges marker path.marker-head-inferred { fill: var(--inferred); }
+#edges marker path.marker-head-ambiguous { fill: var(--ambiguous); }
+#edges marker path.marker-head-active { fill: var(--active); }
 #edges path.resolved { stroke: var(--resolved); }
 #edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; }
 #edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 2 4; }
