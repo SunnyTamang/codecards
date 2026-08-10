@@ -120,6 +120,14 @@ CC.cards = (function () {
     head.appendChild(badges);
     card.appendChild(head);
 
+    const pin = el('button', 'card-pin', '◉');
+    pin.title = 'Keep this card showing its source at any zoom';
+    pin.addEventListener('click', function (event) {
+      event.stopPropagation();
+      CC.zoom.toggle(node.id);
+    });
+    card.appendChild(pin);
+
     if (node.signature) card.appendChild(el('div', 'card-sig', node.name + node.signature));
     if (node.summary) card.appendChild(el('div', 'card-summary', node.summary));
     if (node.file) {

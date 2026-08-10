@@ -148,7 +148,25 @@ CC.view = (function () {
       }
     });
 
-    CC.edges.render(svg, state.edges, state.boxes, {});
+    CC.edges.render(svg, state.edges, state.boxes, {
+      // World y of the line making this call, when the source card is showing
+      // its code. Returning null falls back to the card's bottom edge.
+      lineY: function (edge) {
+        const card = mounted.get(edge.source);
+        if (!card || !card.classList.contains('tier-source')) return null;
+        const site = (edge.sites || [])[0];
+        if (!site) return null;
+        const row = card.querySelector('.src-line[data-line="' + site.line + '"]');
+        if (!row) return null;
+        const cardBox = card.getBoundingClientRect();
+        const rowBox = row.getBoundingClientRect();
+        const scale = CC.canvas.getView().scale;
+        // getBoundingClientRect is in screen pixels; the boxes are in world
+        // coordinates, so divide the offset back out by the current scale.
+        return state.boxes[edge.source].y + (rowBox.top + rowBox.height / 2
+                                             - cardBox.top) / scale;
+      },
+    });
     if (CC.zoom) CC.zoom.apply();
   }
 

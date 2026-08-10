@@ -18,6 +18,7 @@ JS_ORDER = (
     "collapse.js",
     "trace.js",
     "canvas.js",
+    "zoom.js",
     "cards.js",
     "edges.js",
     "graph-view.js",
