@@ -219,6 +219,23 @@ html, body {
 #panel li a { color: var(--accent); cursor: pointer; text-decoration: none; }
 #panel li a:hover { text-decoration: underline; }
 #panel .actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+/* The editor deep link is an <a> and the rest are <button>. Left unstyled
+   they render as a bare browser button beside an underlined blue link, which
+   on a dark panel is close to unreadable. */
+#panel .actions button,
+#panel .actions a {
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.3;
+  text-decoration: none;
+  cursor: pointer;
+}
+#panel .actions button:hover,
+#panel .actions a:hover { border-color: var(--accent); color: var(--accent); }
 #info-panel table { width: 100%; border-collapse: collapse; }
 #info-panel td { padding: 2px 0; }
 #info-panel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
