@@ -20,6 +20,24 @@ CC.view = (function () {
   let svg = null;
   let cardLayer = null;
   let mounted = new Map();
+  let selectedId = null;
+
+  function toggle(id) {
+    const next = new Set(state.collapsed);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return layout(next);
+  }
+
+  function select(id) {
+    selectedId = id;
+    mounted.forEach(function (card, cardId) {
+      card.classList.toggle('selected', cardId === id);
+    });
+    CC.panel.show(id);
+    CC.focus.set(id);
+  }
+
+  function selected() { return selectedId; }
 
   function nodeById(id) { return state.data.nodeIndex[id]; }
 
@@ -151,6 +169,18 @@ CC.view = (function () {
       if (!isContainer) card.style.height = box.h + 'px';
       cardLayer.appendChild(card);
       mounted.set(id, card);
+
+      const head = card.querySelector('.card-head');
+      head.addEventListener('click', function () {
+        if (childrenOf(id).length && state.collapsed.has(id)) {
+          toggle(id);
+        } else {
+          select(id);
+        }
+      });
+      head.addEventListener('dblclick', function () {
+        if (childrenOf(id).length && !state.collapsed.has(id)) toggle(id);
+      });
     });
 
     mounted.forEach(function (card, id) {
@@ -187,6 +217,11 @@ CC.view = (function () {
         };
       },
     });
+
+    if (selectedId && mounted.has(selectedId)) {
+      mounted.get(selectedId).classList.add('selected');
+    }
+    if (CC.focus && CC.focus.active()) CC.focus.apply();
   }
 
   function layout(collapsed) {
@@ -252,5 +287,8 @@ CC.view = (function () {
     paint: paint,
     state: state,
     boxes: function () { return state.boxes; },
+    toggle: toggle,
+    select: select,
+    selected: selected,
   };
 })();
