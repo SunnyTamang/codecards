@@ -1,5 +1,5 @@
-// Mirror of graph/collapse.py. The Python version is the specification.
-// a separate change asserts this reproduces the shipped `initialView` exactly.
+// Mirror of graph/collapse.py. The Python version is the specification, and
+// the golden test asserts this reproduces the shipped `initialView` exactly.
 
 window.CC = window.CC || {};
 

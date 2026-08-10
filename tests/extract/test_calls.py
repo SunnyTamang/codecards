@@ -328,7 +328,7 @@ def test_recursion_error_during_resolution_does_not_abort_the_run(tmp_path):
 # -- fix round 2 -------------------------------------------------------------
 #
 # Two Important defects were introduced BY fix round 1 itself (not present in
-# the original original skeleton):
+# the original skeleton):
 #
 # 1. The rewrite of _iter_calls into per-field-aware _iter_stmt/_iter_expr only
 #    recursed into children typed ast.expr or ast.stmt. ast.arguments (where a
@@ -357,7 +357,7 @@ def test_construct_heavy_corpus_yields_exact_call_count(tmp_path):
     # Exercises: lambda defaults, keyword arguments, f-strings, starred args,
     # slices, await, yield from, decorators on a nested def, and comprehension
     # ifs, in one source file. This is a differential guard: it was verified
-    # to return 11 both against the original original skeleton (commit cc07d88)
+    # to return 11 both against the original skeleton
     # and against the current implementation, and 10 (missing the lambda
     # default call) against fix round 1 (commit bcaab12) - so a future change
     # that silently drops a construct's calls again will move this number.
@@ -446,7 +446,7 @@ def test_recursion_error_with_no_skipped_list_still_does_not_abort(tmp_path):
     assert not any(c.caller == "deep.go" for c in calls)
 
 
-# -- a separate change: attribute calls - modules and self/cls through the MRO ---------
+# -- attribute calls: modules, and self/cls through the MRO -----------------
 
 
 def test_call_through_a_module_alias_resolves(tmp_path):
@@ -534,7 +534,7 @@ def test_shadowed_receiver_does_not_resolve_through_a_module_alias(tmp_path):
     assert result[("app.cli.go", "app.util.parse")] is Confidence.INFERRED
 
 
-# -- a separate change fix round 1: proven correctness defects in the own code -
+# -- shadowing and super(): cases that must refuse to resolve ---------------
 
 
 def test_a_nested_def_shadows_a_receiver_even_though_it_is_not_a_parameter(tmp_path):
@@ -558,7 +558,7 @@ def test_a_nested_def_shadows_a_receiver_even_though_it_is_not_a_parameter(tmp_p
     })
     # Same reasoning as the shadowed-receiver test above: the alias path must
     # not fire, but "parse" is still a globally unique name in this fixture,
-    # so the fallback guesses it honestly at INFERRED.
+    # so the name-index fallback guesses it honestly at INFERRED.
     assert result[("app.cli.go", "app.util.parse")] is Confidence.INFERRED
 
 
@@ -625,7 +625,7 @@ def test_call_through_a_same_module_class_receiver_resolves(tmp_path):
     assert result[("m.go", "m.H.make")] is Confidence.RESOLVED
 
 
-# -- a separate change: type-informed attribute calls -----------------------------------
+# -- type-informed attribute calls -------------------------------------------
 
 
 def test_annotated_parameter_resolves_the_method(tmp_path):
@@ -701,12 +701,12 @@ def test_reassignment_to_an_unknown_value_drops_the_type(tmp_path):
     )})
     # The type-inference path must not fire (h no longer names an H), but
     # "send" is still a globally unique name in this fixture, so the
-    # fallback guesses it honestly at INFERRED rather than the RESOLVED tier
+    # name-index fallback guesses it honestly at INFERRED rather than the RESOLVED tier
     # the type-inference path would have produced.
     assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
-# -- a separate change fix round 1: every rebinding form must drop a stale type --------
+# -- every rebinding form must drop a stale inferred type -------------------
 #
 # context.types was cleared only on Assign/AnnAssign. Every other rebinding
 # form (augmented assignment, walrus, for-target, with-as target) left a
@@ -729,7 +729,7 @@ def test_for_target_reassignment_drops_the_type(tmp_path):
     )})
     # The type-inference path must not fire (h no longer names an H), but
     # "send" is still a globally unique name in this fixture, so the
-    # fallback guesses it honestly at INFERRED rather than RESOLVED.
+    # name-index fallback guesses it honestly at INFERRED rather than RESOLVED.
     assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
@@ -785,7 +785,7 @@ def test_an_unrelated_statement_between_bindings_does_not_clear_the_type(tmp_pat
     assert result[("m.go", "m.H.send")] is Confidence.RESOLVED
 
 
-# -- a separate change fix round 2: single-binding-count, not an enumeration of rebinds -
+# -- a type is kept only when the name is bound exactly once ----------------
 #
 # Fix round 1 tried to prove a candidate type had been destroyed, by
 # enumerating rebinding forms that reach a generic Name/Store,Del node. That
@@ -809,7 +809,7 @@ def test_tuple_unpacking_reassignment_drops_the_type(tmp_path):
         "    h.send()\n"
     )})
     # The type-inference path must not fire, but "send" is still a globally
-    # unique name in this fixture, so the fallback guesses it honestly
+    # unique name in this fixture, so the name-index fallback guesses it honestly
     # at INFERRED rather than RESOLVED.
     assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
@@ -879,7 +879,7 @@ def test_lambda_parameter_shadowing_a_typed_name_drops_the_type(tmp_path):
     assert result[("m.go", "m.H.send")] is Confidence.INFERRED
 
 
-# -- a separate change: the inferred and ambiguous tiers -------------------------------
+# -- the inferred and ambiguous tiers ----------------------------------------
 
 
 def test_a_unique_method_name_is_inferred(tmp_path):

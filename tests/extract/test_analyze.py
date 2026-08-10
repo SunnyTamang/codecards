@@ -181,8 +181,8 @@ def test_skipped_files_are_reported_not_raised(tmp_path):
 def test_graph_and_render_never_import_python_syntax_modules():
     """The layering rule, enforced.
 
-    `tokenize` matters as much as `ast`: a separate change adds syntax highlighting, and
-    it belongs in extract/ with every other module that knows Python. If it
+    `tokenize` matters as much as `ast`: syntax highlighting belongs in
+    extract/ with every other module that knows Python. If it
     drifts into graph/ or render/, a second language stops being additive.
     """
     import codecards

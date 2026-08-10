@@ -71,7 +71,7 @@ CC.panel = (function () {
     }
     const trace = el('button', null, 'Trace from here');
     trace.dataset.role = 'trace';
-    // Guarded because player.js is still a stub until it lands.
+    // Guarded so the panel works even when the player is unavailable.
     trace.addEventListener('click', function () {
       if (CC.player) CC.player.start(id);
     });

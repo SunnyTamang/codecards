@@ -1,5 +1,5 @@
-// Mirror of graph/walkthrough.py. The Python version is the specification;
-// a separate change asserts this reproduces the shipped goldenTrace exactly.
+// Mirror of graph/walkthrough.py. The Python version is the specification,
+// and the golden test asserts this reproduces the shipped goldenTrace exactly.
 //
 // One step per call site, ordered by line. The ordering is lexical, not
 // executional: a call inside an `if` still produces a step, and the player
