@@ -85,7 +85,7 @@ def highlight(source: str) -> tuple[tuple[Run, ...], ...]:
     # was removed so the runs line up with the original text.
     dedented = textwrap.dedent(source)
     dedented_lines = dedented.splitlines()
-    offsets = [len(o) - len(d) for o, d in zip(lines, dedented_lines)]
+    offsets = [len(o) - len(d) for o, d in zip(lines, dedented_lines, strict=False)]
 
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(dedented).readline))

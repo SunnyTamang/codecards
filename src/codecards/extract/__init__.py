@@ -24,7 +24,7 @@ from .symbols import SymbolTable, build_symbol_table
 #: Synthetic container that groups stdlib and third-party leaf nodes.
 EXTERNAL_ROOT_ID = "<external>"
 
-__all__ = ["analyze", "EXTERNAL_ROOT_ID"]
+__all__ = ["EXTERNAL_ROOT_ID", "analyze"]
 
 
 def _import_roots(roots: list[Path]) -> list[Path]:
@@ -41,8 +41,8 @@ def _import_roots(roots: list[Path]) -> list[Path]:
     naming alone.
     """
     resolved = []
-    for root in roots:
-        root = Path(root)
+    for given in roots:
+        root = Path(given)
         base = root if root.is_dir() else root.parent
         while (base / "__init__.py").is_file() and base.parent != base:
             base = base.parent
@@ -281,13 +281,13 @@ def _console_scripts(roots: list[Path]) -> list[str]:
         except OSError:
             continue
         try:
-            import tomllib  # Python 3.11+
+            import tomllib  # noqa: PLC0415 - 3.11+ only, guarded by ImportError
         except ImportError:
             targets += _scan_scripts_section(text)
             continue
         try:
             data = tomllib.loads(text)
-        except Exception:
+        except tomllib.TOMLDecodeError:
             targets += _scan_scripts_section(text)
             continue
         scripts = data.get("project", {}).get("scripts", {})

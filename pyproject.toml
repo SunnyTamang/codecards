@@ -14,7 +14,7 @@ dependencies = []
 codecards = "codecards.cli:run"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-playwright>=0.5"]
+dev = ["pytest>=8", "pytest-playwright>=0.5", "ruff>=0.16,<0.17"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/codecards"]
@@ -22,3 +22,21 @@ packages = ["src/codecards"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+# Pinned explicitly. Without a config the rule set is whatever the installed
+# ruff defaults to, so a new release turns CI red with no change to the code.
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "BLE", "PL"]
+ignore = [
+    "PLR0912",  # branch count: the resolver is a decision tree by nature
+    "PLR0915",  # statement count, same reason
+    "PLR2004",  # magic values read fine in tests and thresholds
+    "PLR0911",  # return count: early returns are how the resolver refuses
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLC0415"]  # imports inside tests are deliberate and local

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 
 def test_the_default_view_shows_module_cards_not_functions(graph_page):
     assert graph_page.locator("#cards .card[data-id='app.cli']").count() == 1

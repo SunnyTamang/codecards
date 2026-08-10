@@ -102,7 +102,7 @@ def _write_html(graph, report, args) -> None:
     viewmodel = build_viewmodel(graph, report, max_depth=args.max_depth)
     write_html(viewmodel, args.output)
     if args.open_browser:
-        import webbrowser
+        import webbrowser  # noqa: PLC0415 - only needed for --open
 
         webbrowser.open(args.output.resolve().as_uri())
 

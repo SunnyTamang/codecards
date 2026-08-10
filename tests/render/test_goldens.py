@@ -46,7 +46,7 @@ def test_js_trace_reproduces_the_shipped_golden_trace(graph_page):
     """)
     expected = graph_page.evaluate("CODECARDS_DATA.goldenTrace.steps")
     assert len(computed) == len(expected)
-    for got, want in zip(computed, expected):
+    for got, want in zip(computed, expected, strict=True):
         for field in ("callerId", "calleeId", "line", "depth", "stack",
                       "confidence", "cond", "loop", "recursive"):
             assert got[field] == want[field], f"{field} differs at step {got['index']}"

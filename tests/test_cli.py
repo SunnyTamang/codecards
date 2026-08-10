@@ -75,7 +75,7 @@ def test_version_flag_exits_zero():
 
 
 def test_large_graph_emits_a_warning(tmp_path, capsys, monkeypatch):
-    import codecards.cli as cli
+    from codecards import cli
     monkeypatch.setattr(cli, "LARGE_GRAPH_THRESHOLD", 1)
     root = project(tmp_path, WORKING)
     main([str(root), "--no-html"])

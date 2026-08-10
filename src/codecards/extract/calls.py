@@ -11,8 +11,8 @@ import ast
 import builtins
 import sys
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Iterator
 
 from ..graph.model import CALLABLE_KINDS, CallSite, Confidence, Edge, NodeKind
 from .discovery import SkippedFile
@@ -390,7 +390,8 @@ class _Resolver:
         # for that reason alone) but only sometimes actually reassigned to
         # something other than the instance/class the method was called on.
         for descendant in _iter_own_scope(node.body):
-            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
+            if (isinstance(descendant, ast.Name)
+                    and isinstance(descendant.ctx, (ast.Store, ast.Del))):
                 context.shadowed.add(descendant.id)
                 context.reassigned.add(descendant.id)
             elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
@@ -438,17 +439,17 @@ class _Resolver:
         for descendant in ast.walk(node):
             if descendant is node:
                 continue  # the function's own name is not one of its locals
-            if isinstance(descendant, ast.Name) and isinstance(descendant.ctx, (ast.Store, ast.Del)):
+            if (isinstance(descendant, ast.Name)
+                    and isinstance(descendant.ctx, (ast.Store, ast.Del))):
                 binding_counts[descendant.id] += 1
             elif isinstance(descendant, ast.arg):
                 binding_counts[descendant.arg] += 1
             elif isinstance(descendant, ast.alias):
                 binding_counts[descendant.asname or descendant.name.split(".")[0]] += 1
-            elif isinstance(descendant, ast.ExceptHandler) and descendant.name:
-                binding_counts[descendant.name] += 1
-            elif isinstance(descendant, ast.MatchAs) and descendant.name:
-                binding_counts[descendant.name] += 1
-            elif isinstance(descendant, ast.MatchStar) and descendant.name:
+            elif (
+                isinstance(descendant, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar))
+                and descendant.name
+            ):
                 binding_counts[descendant.name] += 1
             elif isinstance(descendant, ast.MatchMapping) and descendant.rest:
                 binding_counts[descendant.rest] += 1

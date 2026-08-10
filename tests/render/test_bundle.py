@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 
-from codecards.render.bundle import ASSETS_DIR, JS_ORDER, VENDOR_ORDER, render_html, write_html
+from codecards.render.bundle import ASSETS_DIR, JS_ORDER, render_html, write_html
 
 VIEWMODEL = {
     "meta": {"version": "0.1.0", "generated": "2026-08-09T00:00:00+00:00",

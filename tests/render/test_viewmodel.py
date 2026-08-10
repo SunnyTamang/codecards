@@ -3,7 +3,15 @@ from __future__ import annotations
 import json
 
 from codecards.graph.model import (
-    CallSite, CodeGraph, Confidence, Edge, EntryHint, EntryReason, Location, Node, NodeKind,
+    CallSite,
+    CodeGraph,
+    Confidence,
+    Edge,
+    EntryHint,
+    EntryReason,
+    Location,
+    Node,
+    NodeKind,
 )
 from codecards.render.viewmodel import build_viewmodel
 from codecards.report import AnalysisReport

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecards.extract.symbols import build_symbol_table, module_id_for, _summary
+from codecards.extract.symbols import _summary, build_symbol_table, module_id_for
 from codecards.graph.model import NodeKind
 
 
@@ -180,7 +180,8 @@ def test_module_level_imports_win_over_type_checking(tmp_path):
 
 
 def test_same_module_class_not_clobbered_by_import(tmp_path):
-    """If a module imports a name and defines the same name, mro() should find the same-module class"""
+    """A module that imports a name and also defines it: mro() must find
+    the same-module class."""
     table, _ = build(tmp_path, {
         "app/__init__.py": "",
         "app/other.py": "class Base:\n    def go(self):\n        pass\n",

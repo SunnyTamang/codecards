@@ -69,7 +69,7 @@ def build_walkthrough(
                 )
             )
             if not recursive and depth + 1 <= max_depth:
-                walk(callee, stack + (callee,))
+                walk(callee, (*stack, callee))
 
     walk(entry_id, (entry_id,))
     return steps

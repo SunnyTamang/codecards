@@ -45,6 +45,7 @@ def import_in_fresh_interpreter(statement: str) -> subprocess.CompletedProcess:
         [sys.executable, "-c", statement],
         capture_output=True,
         text=True,
+        check=False,  # the point of these tests is to inspect a failure
         env={"PYTHONPATH": str(SRC), "PATH": ""},
     )
 

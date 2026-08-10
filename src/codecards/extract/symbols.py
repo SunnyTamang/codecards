@@ -207,7 +207,9 @@ def build_symbol_table(
     return table, skipped
 
 
-def _collect_aliases(tree: ast.Module, module_id: str, info: ModuleInfo, is_package: bool = False) -> None:
+def _collect_aliases(
+    tree: ast.Module, module_id: str, info: ModuleInfo, is_package: bool = False
+) -> None:
     package = module_id.rsplit(".", 1)[0] if "." in module_id else ""
     # Collect module-level imports first (they win)
     for node in tree.body:
@@ -257,12 +259,15 @@ def _collect_aliases(tree: ast.Module, module_id: str, info: ModuleInfo, is_pack
                 if base is not None:
                     for alias in node.names:
                         local = alias.asname or alias.name
-                        info.aliases.setdefault(local, f"{base}.{alias.name}" if base else alias.name)
+                        info.aliases.setdefault(
+                            local,
+                            f"{base}.{alias.name}" if base else alias.name,
+                        )
             # Recurse into nested blocks
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.If, ast.With, ast.Try)):
-                if isinstance(node, ast.ClassDef):
-                    visit_nested(node.body)
-                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            nested = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                      ast.If, ast.With, ast.Try)
+            if isinstance(node, nested):
+                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
                     visit_nested(node.body)
                 elif isinstance(node, ast.If):
                     visit_nested(node.body)
@@ -357,5 +362,5 @@ def _end_line(node: ast.AST) -> int:
 def _signature(node: ast.AST) -> str:
     try:
         return f"({ast.unparse(node.args)})"
-    except Exception:  # pragma: no cover - unparse is reliable on 3.10+
+    except Exception:  # noqa: BLE001 - a broken signature must not fail the run
         return "(...)"

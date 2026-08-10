@@ -5,8 +5,15 @@ import sys
 import pytest
 
 from codecards.extract.highlight import (
-    CALL, COMMENT, DEFINITION, KEYWORD, MAX_SOURCE_LINES, NUMBER, STRING,
-    highlight, prepare,
+    CALL,
+    COMMENT,
+    DEFINITION,
+    KEYWORD,
+    MAX_SOURCE_LINES,
+    NUMBER,
+    STRING,
+    highlight,
+    prepare,
 )
 
 
@@ -15,7 +22,7 @@ def spans(source: str) -> list[list[tuple[str, str]]]:
     lines = source.splitlines()
     return [
         [(cls, line[col:col + length]) for col, length, cls in runs]
-        for line, runs in zip(lines, highlight(source))
+        for line, runs in zip(lines, highlight(source), strict=False)
     ]
 
 
@@ -120,9 +127,9 @@ def test_every_run_lies_inside_its_line():
         '        """Doc."""\n'
         "        return f'{self._n}'  # trailing\n"
     )
-    for line, runs in zip(source.splitlines(), highlight(source)):
+    for line, runs in zip(source.splitlines(), highlight(source), strict=False):
         for col, length, _cls in runs:
-            assert 0 <= col and col + length <= len(line)
+            assert col >= 0 and col + length <= len(line)
 
 
 def test_prepare_slices_the_requested_lines():
