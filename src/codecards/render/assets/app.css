@@ -145,6 +145,11 @@ html, body {
 /* Layout reserved a card-tier box, and graph-view sets that height inline.
    Source tier has to escape it, hence !important: the card grows in place
    over its neighbours rather than forcing a relayout. */
+/* Source-tier cards overlap by design, growing over their neighbours rather
+   than forcing a relayout. Raising the one under the pointer keeps that
+   navigable: whatever you point at is readable. */
+.card.tier-source:hover, .card.pinned:hover { z-index: 6; }
+
 .card.tier-source {
   height: auto !important;
   min-height: 0;

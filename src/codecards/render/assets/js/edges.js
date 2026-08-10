@@ -27,12 +27,18 @@ CC.edges = (function () {
     svg.appendChild(defs);
   }
 
-  // Leave the source box at the y of the calling line when that line is
-  // visible, otherwise at the box's bottom edge. Anchoring to the line is
-  // what turns "these two functions are connected" into "this line calls it".
-  function anchor(box, lineY) {
-    if (lineY !== null && lineY !== undefined && lineY > box.y && lineY < box.y + box.h) {
-      return { x: box.x + box.w, y: lineY, side: 'right' };
+  // Leave from the calling line when the source card is showing its code,
+  // otherwise from the box's bottom edge. Anchoring to the line is what turns
+  // "these two functions are connected" into "this line calls it".
+  //
+  // `at` arrives already in world coordinates and is trusted as given. It
+  // cannot be validated against `box`: a source-tier card deliberately grows
+  // past the card-sized box layout reserved for it, in both axes, so any
+  // check against those bounds rejects every line but the first and silently
+  // disables the feature for every real card.
+  function anchor(box, at) {
+    if (at) {
+      return { x: at.x, y: at.y, side: 'right' };
     }
     return { x: box.x + box.w / 2, y: box.y + box.h, side: 'bottom' };
   }
@@ -63,8 +69,8 @@ CC.edges = (function () {
       const target = boxes[edge.target];
       if (!source || !target) return;  // an endpoint is culled or hidden
 
-      const lineY = opts.lineY ? opts.lineY(edge) : null;
-      const from = anchor(source, lineY);
+      const at = opts.anchorFor ? opts.anchorFor(edge) : null;
+      const from = anchor(source, at);
       const to = { x: target.x + target.w / 2, y: target.y };
 
       const shape = document.createElementNS(NS, 'path');

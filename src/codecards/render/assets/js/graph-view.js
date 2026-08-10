@@ -88,6 +88,18 @@ CC.view = (function () {
     return out;
   }
 
+  // Aggregated view edges carry weight and tiers but not call sites, so the
+  // raw edge list is the only place the line numbers survive.
+  function firstCallSite(source, target) {
+    for (const edge of state.data.edges) {
+      if (edge.source === source && edge.target === target) {
+        const sites = edge.sites || [];
+        if (sites.length) return sites[0];
+      }
+    }
+    return null;
+  }
+
   function callLinesFor(id) {
     const map = new Map();
     state.data.edges.forEach(function (edge) {
@@ -148,26 +160,33 @@ CC.view = (function () {
       }
     });
 
+    // Tiers first. Edge anchoring reads the tier class and the resulting
+    // rendered geometry, so rendering edges before this would anchor every
+    // edge against the previous frame's tier.
+    if (CC.zoom) CC.zoom.apply();
+
     CC.edges.render(svg, state.edges, state.boxes, {
-      // World y of the line making this call, when the source card is showing
-      // its code. Returning null falls back to the card's bottom edge.
-      lineY: function (edge) {
+      // World-space point an edge should leave from: the right edge of the
+      // source card, at the vertical centre of the line making the call.
+      // Measured from the DOM, because a source-tier card grows past both
+      // the width and the height that layout reserved for it.
+      anchorFor: function (edge) {
         const card = mounted.get(edge.source);
         if (!card || !card.classList.contains('tier-source')) return null;
-        const site = (edge.sites || [])[0];
+        const site = firstCallSite(edge.source, edge.target);
         if (!site) return null;
         const row = card.querySelector('.src-line[data-line="' + site.line + '"]');
         if (!row) return null;
-        const cardBox = card.getBoundingClientRect();
-        const rowBox = row.getBoundingClientRect();
+        const box = state.boxes[edge.source];
+        const cardRect = card.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
         const scale = CC.canvas.getView().scale;
-        // getBoundingClientRect is in screen pixels; the boxes are in world
-        // coordinates, so divide the offset back out by the current scale.
-        return state.boxes[edge.source].y + (rowBox.top + rowBox.height / 2
-                                             - cardBox.top) / scale;
+        return {
+          x: box.x + cardRect.width / scale,
+          y: box.y + (rowRect.top + rowRect.height / 2 - cardRect.top) / scale,
+        };
       },
     });
-    if (CC.zoom) CC.zoom.apply();
   }
 
   function layout(collapsed) {

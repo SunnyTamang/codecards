@@ -39,9 +39,13 @@ def test_block_tier_hides_everything_but_the_name(graph_page):
 
 def test_zooming_never_triggers_a_relayout(graph_page):
     """The layout is computed at card dimensions once. Zoom is pure CSS."""
+    # The trailing `void 0` is load-bearing. Playwright INVOKES the completion
+    # value of evaluate() when it is a function, passing Python's implicit
+    # arg as null, so ending on the assignment calls layout(null) immediately.
     graph_page.evaluate("window.__layouts = 0;"
                         "const real = CC.view.layout;"
-                        "CC.view.layout = function (c) { window.__layouts++; return real(c); };")
+                        "CC.view.layout = function (c) { window.__layouts++; return real(c); };"
+                        "void 0;")
     for scale in (0.1, 0.3, 0.5, 0.9, 2.0, 0.2):
         graph_page.evaluate(f"CC.canvas.setView({{x: 0, y: 0, scale: {scale}}})")
         graph_page.wait_for_timeout(40)
@@ -73,12 +77,30 @@ def test_unpinning_returns_the_card_to_the_zoom_tier(graph_page):
 
 
 def test_the_pin_button_toggles_the_pin(graph_page):
+    """Driven with a real mouse on purpose. The canvas captures the pointer to
+    pan, and capture retargets the following click to the viewport, so a
+    scripted element.click() passed while no user could ever pin a card."""
     graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
     graph_page.wait_for_timeout(80)
-    graph_page.locator(".card[data-id='app.cli'] .card-pin").click()
+    pin = graph_page.locator(".card[data-id='app.cli'] .card-pin")
+    box = pin.bounding_box()
+    graph_page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     assert graph_page.evaluate("CC.zoom.isPinned('app.cli')") is True
-    graph_page.locator(".card[data-id='app.cli'] .card-pin").click()
+    box = pin.bounding_box()
+    graph_page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     assert graph_page.evaluate("CC.zoom.isPinned('app.cli')") is False
+
+
+def test_clicking_a_card_control_does_not_pan_the_canvas(graph_page):
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
+    graph_page.wait_for_timeout(80)
+    before = graph_page.evaluate("CC.canvas.getView()")
+    box = graph_page.locator(".card[data-id='app.cli'] .card-pin").bounding_box()
+    graph_page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    graph_page.mouse.down()
+    graph_page.mouse.move(box["x"] + 60, box["y"] + 40)
+    graph_page.mouse.up()
+    assert graph_page.evaluate("CC.canvas.getView()") == before
 
 
 def test_a_pin_survives_the_card_being_culled_and_remounted(graph_page):
@@ -91,34 +113,58 @@ def test_a_pin_survives_the_card_being_culled_and_remounted(graph_page):
 
 
 def test_an_edge_leaves_from_its_calling_line_at_source_tier(graph_page):
-    """The promise of showing code: the arrow starts at the line that calls."""
+    """The promise of showing code: the arrow starts at the line that calls.
+
+    Compared against measured geometry, not against the layout box. A
+    source-tier card deliberately grows past the box layout reserved, so the
+    box tells you nothing about where line 5 actually is."""
     graph_page.evaluate("CC.view.layout(new Set())")
     graph_page.wait_for_function("CC.view.ready === true")
     graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
-    graph_page.wait_for_timeout(120)
+    graph_page.wait_for_timeout(200)
 
-    box = graph_page.evaluate("CC.view.boxes()['app.cli.main']")
-    start_y = graph_page.evaluate(
-        "parseFloat(document.querySelector("
-        "  \"#edges path[data-edge='app.cli.main->app.cli.load_config']\")"
-        "  .getAttribute('d').split(',')[1].split(' ')[0])")
-    # main() spans lines 4-9 and calls load_config on line 5, so the edge must
-    # start near the top of the card, not at its bottom edge.
-    assert box["y"] < start_y < box["y"] + box["h"] * 0.5
+    got = graph_page.evaluate("""() => {
+        const card = document.querySelector('.card[data-id="app.cli.main"]');
+        const row = card.querySelector('.src-line[data-line="5"]');
+        const path = document.querySelector(
+            '#edges path[data-edge="app.cli.main->app.cli.load_config"]');
+        const start = path.getAttribute('d').slice(1).split(' ')[0]
+                          .split(',').map(Number);
+        const box = CC.view.boxes()['app.cli.main'];
+        const cardRect = card.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        const scale = CC.canvas.getView().scale;
+        return {
+            startX: start[0], startY: start[1],
+            wantX: box.x + cardRect.width / scale,
+            wantY: box.y + (rowRect.top + rowRect.height / 2 - cardRect.top) / scale,
+            boxBottom: box.y + box.h,
+        };
+    }""")
+    assert got["startY"] == pytest.approx(got["wantY"], abs=2)
+    assert got["startX"] == pytest.approx(got["wantX"], abs=2)
+    # And it is genuinely line-anchored, not the bottom-edge fallback.
+    assert abs(got["startY"] - got["boxBottom"]) > 5
 
 
 def test_edges_fall_back_to_the_card_edge_below_source_tier(graph_page):
     graph_page.evaluate("CC.view.layout(new Set())")
     graph_page.wait_for_function("CC.view.ready === true")
     graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 0.5})")
-    graph_page.wait_for_timeout(120)
+    graph_page.wait_for_timeout(200)
 
-    box = graph_page.evaluate("CC.view.boxes()['app.cli.main']")
-    start_y = graph_page.evaluate(
-        "parseFloat(document.querySelector("
-        "  \"#edges path[data-edge='app.cli.main->app.cli.load_config']\")"
-        "  .getAttribute('d').split(',')[1].split(' ')[0])")
-    assert start_y == pytest.approx(box["y"] + box["h"], abs=1)
+    got = graph_page.evaluate("""() => {
+        const path = document.querySelector(
+            '#edges path[data-edge="app.cli.main->app.cli.load_config"]');
+        const start = path.getAttribute('d').slice(1).split(' ')[0]
+                          .split(',').map(Number);
+        const box = CC.view.boxes()['app.cli.main'];
+        return {startX: start[0], startY: start[1],
+                wantX: box.x + box.w / 2, wantY: box.y + box.h};
+    }""")
+    assert got["startX"] == pytest.approx(got["wantX"], abs=1)
+    assert got["startY"] == pytest.approx(got["wantY"], abs=1)
+
 
 
 def test_source_tier_is_absent_when_no_source_was_embedded(

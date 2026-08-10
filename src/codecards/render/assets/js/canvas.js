@@ -136,6 +136,11 @@ CC.canvas = (function () {
       // Only drag from empty canvas or a card's chrome. Selecting code inside
       // a card must not pan the view, or reading becomes impossible.
       if (event.target.closest('.card-body')) return;
+      // Nor may a drag start from a control. Capturing the pointer retargets
+      // the following pointerup and click to the viewport, so a real mouse
+      // click on the pin button never reached it, while a scripted
+      // element.click() did. That is why this needs a test driving the mouse.
+      if (event.target.closest('button, a, input, select, textarea')) return;
       if (event.button !== 0) return;
       panning = true;
       lastX = event.clientX;
