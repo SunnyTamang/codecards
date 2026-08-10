@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 from codecards.render.bundle import render_html
@@ -87,6 +89,16 @@ SAMPLE = {
               "callableCount": 4, "edgeCount": 3,
               "skipped": [{"path": "app/broken.py", "reason": "syntax error at line 3"}]},
 }
+
+
+@pytest.fixture
+def sample_viewmodel():
+    """A deep copy of SAMPLE, for tests that need to alter it.
+
+    Exposed as a fixture rather than imported: `tests` is not a package, so
+    `from tests.render.conftest import SAMPLE` raises ModuleNotFoundError.
+    """
+    return copy.deepcopy(SAMPLE)
 
 
 @pytest.fixture
