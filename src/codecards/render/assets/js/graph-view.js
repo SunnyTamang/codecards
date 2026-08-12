@@ -29,9 +29,20 @@ CC.view = (function () {
   }
 
   function drawnEdges() {
-    return state.data.edges.filter(function (edge) {
-      return tierFilter.has(edge.confidence);
+    const hidden = hiddenIds();
+    const out = [];
+    state.data.edges.forEach(function (edge) {
+      if (!tierFilter.has(edge.confidence)) return;
+      const source = foldHidden(edge.source, hidden);
+      const target = foldHidden(edge.target, hidden);
+      if (!source || !target) return;
+      if (source === edge.source && target === edge.target) {
+        out.push(edge);
+        return;
+      }
+      out.push(Object.assign({}, edge, { source: source, target: target }));
     });
+    return out;
   }
 
   function toggle(id) {
@@ -68,11 +79,41 @@ CC.view = (function () {
 
   function childrenOf(id) { return state.data.childIndex[id] || []; }
 
+  // Special methods are hidden by default: __eq__ and __hash__ are language
+  // machinery, not flow anyone reads a codebase to understand.
+  let showDunders = false;
+
+  function hiddenIds() {
+    const out = new Set();
+    if (showDunders) return out;
+    state.data.nodes.forEach(function (node) {
+      if (node.dunder) out.add(node.id);
+    });
+    return out;
+  }
+
+  // An edge touching a hidden node is re-pointed at its nearest visible
+  // ancestor rather than dropped. __init__ has real callers, since
+  // constructor calls retarget onto it, so dropping would delete the flow
+  // "something builds a Mailer" from the graph entirely.
+  function foldHidden(id, hidden) {
+    let cursor = id;
+    while (cursor && hidden.has(cursor)) cursor = state.data.parentIndex[cursor];
+    return cursor || null;
+  }
+
+  function setShowDunders(show) {
+    showDunders = !!show;
+    return layout(state.collapsed);
+  }
+
   // A node is visible when nothing above it is collapsed. Descent stops at a
   // collapsed container: the container itself is visible, its children are not.
   function computeVisible(collapsed) {
+    const hidden = hiddenIds();
     const visible = new Set();
     function walk(id) {
+      if (hidden.has(id)) return;
       visible.add(id);
       if (collapsed.has(id)) return;
       childrenOf(id).forEach(walk);
@@ -325,5 +366,6 @@ CC.view = (function () {
     selected: selected,
     deselect: deselect,
     setTierFilter: setTierFilter,
+    setShowDunders: setShowDunders,
   };
 })();

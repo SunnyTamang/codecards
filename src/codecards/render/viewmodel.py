@@ -105,6 +105,10 @@ def _node(node) -> dict:
         "summary": node.summary,
         "decorators": list(node.decorators),
     }
+    if node.implicitly_called:
+        payload["implicit"] = True
+    if node.is_dunder:
+        payload["dunder"] = True
     if node.source is not None:
         payload["source"] = node.source
         payload["tokens"] = [[list(run) for run in line]

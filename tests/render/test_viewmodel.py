@@ -156,3 +156,22 @@ def test_truncated_source_is_marked_so_the_card_can_say_so():
 
 def test_empty_graph_has_no_golden_trace():
     assert build_viewmodel(CodeGraph(), AnalysisReport(), max_depth=15)["goldenTrace"] is None
+
+
+def test_implicitly_called_nodes_are_not_orphans():
+    """The badge says "unused". A method the language calls on every == is
+    not unused, and saying so sends the reader to delete working code."""
+    graph = build()
+    graph.nodes["app.mail.dunder"] = Node(
+        id="app.mail.dunder", kind=NodeKind.METHOD, name="__eq__",
+        parent="app.mail", implicitly_called=True, is_dunder=True,
+    )
+    result = build_viewmodel(graph, AnalysisReport())
+    assert "app.mail.dunder" not in result["orphans"]
+    node = next(n for n in result["nodes"] if n["id"] == "app.mail.dunder")
+    assert node["implicit"] is True
+    assert node["dunder"] is True
+
+
+def test_a_normal_uncalled_callable_is_still_an_orphan():
+    assert "app.mail.unused" in build_viewmodel(build(), AnalysisReport())["orphans"]

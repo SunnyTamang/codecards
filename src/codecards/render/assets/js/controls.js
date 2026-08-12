@@ -182,6 +182,9 @@ CC.controls = (function () {
     document.getElementById('show-ambiguous').addEventListener('change', function (event) {
       setTierVisibility('ambiguous', event.target.checked);
     });
+    document.getElementById('show-dunders').addEventListener('change', function (event) {
+      CC.view.setShowDunders(event.target.checked);
+    });
     document.getElementById('focus-hops').addEventListener('input', function (event) {
       document.getElementById('focus-hops-value').textContent = event.target.value;
       CC.focus.setHops(Number(event.target.value));

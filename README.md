@@ -77,7 +77,14 @@ Select a card to dim everything outside its neighbourhood, and widen the radius
 to answer "what does this touch, and what would I break by changing it".
 
 Cards nothing calls carry an `unused` badge, so you can see which parts of the
-map you are free to ignore.
+map you are free to ignore. Methods the language calls for you are exempt: a
+`__eq__` runs on every `==` and a property on every attribute access, so
+neither is dead code however few call sites point at it.
+
+Special methods are hidden by default, since they are machinery rather than
+flow. The `Dunders` toggle brings them back. Hiding them does not lose
+anything: a call into `__init__` re-points at the class, so you still see what
+builds what.
 
 Edges are drawn according to how certain the analysis is:
 

@@ -125,3 +125,66 @@ def test_the_page_loads_without_a_single_console_error(
     page.goto(out.as_uri())
     page.wait_for_function("CC.view.ready === true")
     assert errors == []
+
+
+def _page_with_a_dunder(tmp_path, page, sample_viewmodel):
+    """The shared fixture has no special methods, so add one plus a call into
+    it, the way a constructor call is retargeted onto __init__."""
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    vm["nodes"].append({
+        "id": "app.mail.Mailer.__init__", "kind": "method", "name": "__init__",
+        "parent": "app.mail.Mailer", "file": "app/mail.py",
+        "lineStart": 10, "lineEnd": 11, "signature": "(self)",
+        "summary": None, "decorators": [], "implicit": True, "dunder": True,
+    })
+    vm["edges"].append({
+        "source": "app.cli.main", "target": "app.mail.Mailer.__init__",
+        "confidence": "resolved", "sites": [{"line": 6, "cond": False, "loop": False}],
+    })
+    out = tmp_path / "dunder.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+    page.evaluate("CC.view.layout(new Set())")
+    page.wait_for_function("CC.view.ready === true")
+    page.wait_for_timeout(200)
+    return page
+
+
+def _dunder_cards(page):
+    return page.evaluate(
+        "Array.from(document.querySelectorAll('#cards .card'))"
+        ".filter(c => c.dataset.id.endsWith('__init__')).map(c => c.dataset.id)")
+
+
+def test_special_methods_are_hidden_by_default(tmp_path, page, sample_viewmodel):
+    page = _page_with_a_dunder(tmp_path, page, sample_viewmodel)
+    assert _dunder_cards(page) == []
+    assert page.is_checked("#show-dunders") is False
+
+
+def test_the_dunder_toggle_reveals_them(tmp_path, page, sample_viewmodel):
+    page = _page_with_a_dunder(tmp_path, page, sample_viewmodel)
+    page.check("#show-dunders")
+    page.wait_for_function("CC.view.ready === true")
+    page.wait_for_timeout(200)
+    assert _dunder_cards(page) == ["app.mail.Mailer.__init__"]
+
+
+def test_hiding_a_dunder_folds_its_edge_onto_the_class(tmp_path, page, sample_viewmodel):
+    """__init__ has real callers, since constructor calls retarget onto it.
+    Dropping the edge would delete "something builds a Mailer" from the graph,
+    so it re-points at the nearest visible ancestor instead."""
+    page = _page_with_a_dunder(tmp_path, page, sample_viewmodel)
+    assert page.locator(
+        "#edges path[data-edge='app.cli.main->app.mail.Mailer.__init__']").count() == 0
+    assert page.locator(
+        "#edges path[data-edge='app.cli.main->app.mail.Mailer']").count() == 1
+
+    page.check("#show-dunders")
+    page.wait_for_function("CC.view.ready === true")
+    page.wait_for_timeout(200)
+    assert page.locator(
+        "#edges path[data-edge='app.cli.main->app.mail.Mailer.__init__']").count() == 1

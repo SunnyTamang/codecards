@@ -40,6 +40,12 @@ def detect_entry_points(graph: CodeGraph) -> list[EntryPoint]:
 
     called = {e.target for e in graph.edges if e.confidence in DRAWN}
     for node in graph.callables():
+        # A callable the language invokes on its own has no visible caller by
+        # nature. Treating it as a front door lists it in the entry-point
+        # menu, and treating it as uncalled brands it dead code; both are
+        # wrong for something that runs on every == or dict lookup.
+        if node.implicitly_called:
+            continue
         if node.id not in called and node.id not in reasons:
             reasons[node.id] = [EntryReason.NO_CALLERS]
 

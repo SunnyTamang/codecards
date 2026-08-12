@@ -293,3 +293,44 @@ def test_nested_package_roots_walk_all_the_way_up(tmp_path):
     (deep / "m.py").write_text("def go():\n    pass\n")
     graph, _ = analyze([deep])
     assert "a.b.c.m.go" in graph.nodes
+
+
+def test_special_methods_are_not_reported_as_dead_code(tmp_path):
+    """__eq__ runs on ==, __hash__ on a dict lookup. Neither has a call site
+    the analyser can see, so the structural "nothing calls this" rule brands
+    both dead code and lists them as ways into the program."""
+    root = project(tmp_path, {"m.py": (
+        "class H:\n"
+        "    def __init__(self):\n        pass\n"
+        "    def __eq__(self, other):\n        return True\n"
+        "    def __hash__(self):\n        return 1\n"
+        "    @property\n"
+        "    def size(self):\n        return 2\n"
+        "    def helper(self):\n        pass\n"
+    )})
+    graph, _ = analyze([root])
+
+    for name in ("__init__", "__eq__", "__hash__"):
+        node = graph.nodes[f"m.H.{name}"]
+        assert node.implicitly_called is True, name
+        assert node.is_dunder is True, name
+
+    # a property is invoked by attribute access, so it is implicit too, but it
+    # is not a dunder and the interface does not hide it with them
+    prop = graph.nodes["m.H.size"]
+    assert prop.implicitly_called is True
+    assert prop.is_dunder is False
+
+    plain = graph.nodes["m.H.helper"]
+    assert plain.implicitly_called is False
+
+    flagged = {h.node_id for h in graph.entry_hints}
+    assert "m.H.__eq__" not in flagged
+    assert "m.H.size" not in flagged
+
+
+def test_a_plain_uncalled_function_is_still_reported(tmp_path):
+    """The exemption must not swallow genuine dead code."""
+    root = project(tmp_path, {"m.py": "def nobody_calls_me():\n    pass\n"})
+    graph, _ = analyze([root])
+    assert graph.nodes["m.nobody_calls_me"].implicitly_called is False

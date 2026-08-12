@@ -74,6 +74,14 @@ class Node:
     source: str | None = None  # populated only with --embed-source
     source_tokens: tuple[tuple[tuple[int, int, str], ...], ...] | None = None
     source_truncated: bool = False
+    #: Invoked by the language rather than from any call site the analyser can
+    #: see: __eq__ runs on ==, __hash__ on a dict lookup, a property on
+    #: attribute access. Such a callable has no callers in the graph and is
+    #: not therefore dead code.
+    implicitly_called: bool = False
+    #: A special method by name (__init__, __eq__). A subset of the above,
+    #: kept separate because the UI hides these and not properties.
+    is_dunder: bool = False
 
 
 @dataclass(frozen=True)

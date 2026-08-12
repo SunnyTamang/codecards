@@ -136,6 +136,28 @@ def _parent_of(node_id: str) -> str | None:
     return node_id.rsplit(".", 1)[0] if "." in node_id else None
 
 
+#: Decorators that turn a method into something the language calls on
+#: attribute access, so it has no visible call site either.
+_IMPLICIT_DECORATORS = frozenset({
+    "property", "cached_property", "setter", "getter", "deleter",
+})
+
+
+def _is_dunder(name: str) -> bool:
+    """A special method by name: called by the interpreter, not from any
+    visible call site. `__init__` still gets explicit callers, because
+    constructor calls are retargeted onto it, but it is one of the family."""
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
+def _is_implicitly_called(definition) -> bool:
+    if _is_dunder(definition.name):
+        return True
+    return any(
+        d.rsplit(".", 1)[-1] in _IMPLICIT_DECORATORS for d in definition.decorators
+    )
+
+
 def _add_definitions(graph: CodeGraph, table: SymbolTable, embed_source: bool) -> None:
     for qualname, definition in sorted(table.definitions.items()):
         source = None
@@ -152,6 +174,8 @@ def _add_definitions(graph: CodeGraph, table: SymbolTable, embed_source: bool) -
         graph.nodes[qualname] = Node(
             id=qualname,
             kind=definition.kind,
+            implicitly_called=_is_implicitly_called(definition),
+            is_dunder=_is_dunder(definition.name),
             name=definition.name,
             parent=definition.parent,
             location=definition.location,
