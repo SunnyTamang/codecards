@@ -233,6 +233,13 @@ html, body {
   background: var(--surface); border-left: 1px solid var(--line);
 }
 #panel[hidden], #info-panel[hidden] { display: none; }
+.panel-close {
+  position: absolute; top: 8px; right: 10px;
+  width: 24px; height: 24px; padding: 0;
+  background: none; border: 0; border-radius: 6px;
+  color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.panel-close:hover { background: var(--surface-2); color: var(--text); }
 #panel h2 { margin: 0 0 2px; font-size: 15px; word-break: break-all; }
 #panel .sig, #panel .path { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
 #panel h3 { margin: 14px 0 5px; font-size: 11px; text-transform: uppercase; color: var(--muted); }

@@ -160,8 +160,7 @@ CC.controls = (function () {
         event.preventDefault();
         CC.player.prev();
       } else if (event.key === 'Escape') {
-        CC.panel.hide();
-        CC.focus.clear();
+        CC.view.deselect();
         document.getElementById('info-panel').hidden = true;
       } else if (event.key === '/') {
         event.preventDefault();

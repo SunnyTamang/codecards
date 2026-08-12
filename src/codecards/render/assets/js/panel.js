@@ -32,6 +32,12 @@ CC.panel = (function () {
     const host = document.getElementById('panel');
     host.replaceChildren();
 
+    const close = el('button', 'panel-close', '\u00d7');
+    close.dataset.role = 'close';
+    close.title = 'Close (Esc)';
+    close.addEventListener('click', function () { CC.view.deselect(); });
+    host.appendChild(close);
+
     host.appendChild(el('h2', null, node.id));
     if (node.signature) host.appendChild(el('div', 'sig', node.name + node.signature));
     if (node.file) {

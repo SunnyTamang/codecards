@@ -53,6 +53,17 @@ CC.view = (function () {
 
   function selected() { return selectedId; }
 
+  // Clearing has to undo all three things selecting did, or the canvas keeps
+  // a card outlined, the panel open, or two thirds of the graph dimmed with
+  // no obvious way back.
+  function deselect() {
+    selectedId = null;
+    mounted.forEach(function (card) { card.classList.remove('selected'); });
+    CC.panel.hide();
+    CC.focus.clear();
+    paint();
+  }
+
   function nodeById(id) { return state.data.nodeIndex[id]; }
 
   function childrenOf(id) { return state.data.childIndex[id] || []; }
@@ -312,6 +323,7 @@ CC.view = (function () {
     toggle: toggle,
     select: select,
     selected: selected,
+    deselect: deselect,
     setTierFilter: setTierFilter,
   };
 })();

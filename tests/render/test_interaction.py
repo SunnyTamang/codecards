@@ -108,3 +108,84 @@ def test_focus_survives_expanding_a_container(graph_page):
     graph_page.evaluate("CC.view.toggle('app.mail')")
     graph_page.wait_for_function("CC.view.ready === true")
     assert graph_page.locator("#cards .card.dimmed").count() > 0
+
+def _click_head(page, node_id):
+    box = page.locator(f".card[data-id='{node_id}'] .card-head").bounding_box()
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+
+def test_the_panel_has_a_visible_way_to_close_it(graph_page):
+    """Selecting dims most of the graph and covers a strip of canvas. Leaving
+    a keyboard shortcut as the only way out strands anyone who does not know
+    about it."""
+    _click_head(graph_page, "app.cli")
+    graph_page.wait_for_function("CC.view.ready === true")
+    _click_head(graph_page, "app.cli.main")
+    assert graph_page.locator("#panel").is_visible()
+
+    close = graph_page.locator("#panel button[data-role='close']")
+    assert close.count() == 1
+    box = close.bounding_box()
+    graph_page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+    assert graph_page.locator("#panel").is_hidden()
+    assert graph_page.evaluate("CC.view.selected()") is None
+    assert graph_page.locator("#cards .card.dimmed").count() == 0
+    assert graph_page.locator("#cards .card.selected").count() == 0
+
+
+def test_clicking_the_background_clears_the_selection(graph_page):
+    _click_head(graph_page, "app.cli")
+    graph_page.wait_for_function("CC.view.ready === true")
+    _click_head(graph_page, "app.cli.main")
+    assert graph_page.locator("#panel").is_visible()
+
+    # Pick a point the layout genuinely leaves empty rather than guessing.
+    spot = graph_page.evaluate("""() => {
+        const box = document.getElementById('viewport').getBoundingClientRect();
+        for (let y = box.bottom - 12; y > box.top + 12; y -= 20) {
+            for (let x = box.left + 12; x < box.right - 12; x += 20) {
+                const el = document.elementFromPoint(x, y);
+                if (el && !el.closest('.card') && !el.closest('#panel')) {
+                    return {x: x, y: y};
+                }
+            }
+        }
+        return null;
+    }""")
+    assert spot, "no empty canvas to click"
+    graph_page.mouse.click(spot["x"], spot["y"])
+
+    assert graph_page.locator("#panel").is_hidden()
+    assert graph_page.evaluate("CC.view.selected()") is None
+    assert graph_page.locator("#cards .card.dimmed").count() == 0
+
+
+def test_a_drag_on_the_background_keeps_the_selection(graph_page):
+    """Panning ends with a click event on the background. Treating that as
+    clicking away would clear the selection every time the user moved the
+    canvas."""
+    _click_head(graph_page, "app.cli")
+    graph_page.wait_for_function("CC.view.ready === true")
+    _click_head(graph_page, "app.cli.main")
+    selected = graph_page.evaluate("CC.view.selected()")
+
+    graph_page.mouse.move(200, 880)
+    graph_page.mouse.down()
+    graph_page.mouse.move(320, 800)
+    graph_page.mouse.up()
+
+    assert graph_page.evaluate("CC.view.selected()") == selected
+    assert graph_page.locator("#panel").is_visible()
+
+
+def test_escape_clears_the_selection_not_just_the_panel(graph_page):
+    _click_head(graph_page, "app.cli")
+    graph_page.wait_for_function("CC.view.ready === true")
+    _click_head(graph_page, "app.cli.main")
+    graph_page.locator("body").press("Escape")
+
+    assert graph_page.locator("#panel").is_hidden()
+    assert graph_page.evaluate("CC.view.selected()") is None
+    assert graph_page.locator("#cards .card.selected").count() == 0
+

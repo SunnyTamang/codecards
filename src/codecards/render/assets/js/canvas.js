@@ -13,6 +13,10 @@ CC.canvas = (function () {
 
   let viewport = null;
   let world = null;
+  //: Whether the gesture that just finished was a drag rather than a click.
+  //: A drag ends with a click event too, and the background click handler
+  //: must not treat "the user finished panning" as "the user clicked away".
+  let dragged = false;
   let onViewChange = null;
   let view = { x: 0, y: 0, scale: 1 };
 
@@ -145,6 +149,7 @@ CC.canvas = (function () {
       if (event.target.closest('button, a, input, select, textarea')) return;
       if (event.button !== 0) return;
       armed = true;
+      dragged = false;
       startX = lastX = event.clientX;
       startY = lastY = event.clientY;
     });
@@ -161,6 +166,7 @@ CC.canvas = (function () {
         const dy = event.clientY - startY;
         if (dx * dx + dy * dy < DRAG_THRESHOLD * DRAG_THRESHOLD) return;
         panning = true;
+        dragged = true;
         viewport.classList.add('panning');
         viewport.setPointerCapture(event.pointerId);
       }
@@ -214,5 +220,6 @@ CC.canvas = (function () {
     panTo: panTo,
     screenToWorld: screenToWorld,
     visibleWorldRect: visibleWorldRect,
+    didDrag: function () { return dragged; },
   };
 })();

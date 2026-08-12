@@ -16,6 +16,15 @@ function __cc_boot() {
       });
     },
   });
+  // Clicking the background clears the selection. Without this the panel and
+  // the focus dimming have no obvious way out: the only escape was a keyboard
+  // shortcut nobody is told about.
+  document.getElementById('viewport').addEventListener('click', function (event) {
+    if (event.target.closest('.card')) return;
+    if (CC.canvas.didDrag()) return;   // finishing a pan is not a click away
+    CC.view.deselect();
+  });
+
   CC.view.init(window.CODECARDS_DATA).then(function () {
     CC.controls.init();
   });
