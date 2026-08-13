@@ -173,3 +173,28 @@ def test_marker_paths_do_not_match_the_edge_tier_selectors(graph_page):
     for tier in ("resolved", "inferred", "ambiguous", "active"):
         assert graph_page.locator(f"#edges marker path.{tier}").count() == 0
 
+
+def test_the_pin_never_overlaps_the_badges(graph_page):
+    """The pin is positioned absolutely in the corner while the badges are
+    laid out to the card's right edge, so without reserved space the counts
+    render underneath it and become unreadable."""
+    result = graph_page.evaluate("""() => {
+        const overlaps = [];
+        let checked = 0;
+        document.querySelectorAll('#cards .card').forEach(card => {
+            const pin = card.querySelector('.card-pin');
+            const badges = card.querySelector('.card-badges');
+            if (!pin || !badges) return;
+            if (!pin.getClientRects().length || !badges.getClientRects().length) return;
+            checked += 1;
+            const a = pin.getBoundingClientRect();
+            const b = badges.getBoundingClientRect();
+            if (a.left < b.right && b.left < a.right
+                && a.top < b.bottom && b.top < a.bottom) {
+                overlaps.push(card.dataset.id);
+            }
+        });
+        return {checked: checked, overlaps: overlaps};
+    }""")
+    assert result["checked"] > 0, "no card had both a pin and badges to compare"
+    assert result["overlaps"] == []

@@ -120,7 +120,12 @@ html, body {
   color: var(--orphan); font-size: 9px; text-transform: uppercase;
 }
 
-.card-head { display: flex; align-items: baseline; gap: 5px; padding: 5px 8px; }
+/* The pin sits absolutely in the corner, so the head has to reserve room for
+   it or the badges run underneath and the counts become unreadable. */
+.card-head {
+  display: flex; align-items: baseline; gap: 5px;
+  padding: 5px 26px 5px 8px;
+}
 .card-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-sig, .card-summary, .card-path {
   color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
