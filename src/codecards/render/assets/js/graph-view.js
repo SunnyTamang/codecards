@@ -16,6 +16,7 @@ CC.view = (function () {
     boxes: {},
     internalCounts: {},
     orphans: new Set(),
+    entries: new Set(),
   };
   let svg = null;
   let cardLayer = null;
@@ -224,6 +225,7 @@ CC.view = (function () {
       const card = CC.cards.build(node, {
         isContainer: isContainer,
         isOrphan: state.orphans.has(id),
+        isEntry: state.entries.has(id),
         fanIn: counts.inCount[id] || 0,
         fanOut: counts.outCount[id] || 0,
         internal: state.internalCounts[id] || 0,
@@ -351,6 +353,21 @@ CC.view = (function () {
     cardLayer = document.getElementById('cards');
     state.data = Object.assign({}, data, index(data));
     state.orphans = new Set(data.orphans || []);
+    // "nothing calls it" is a structural fallback that matches thousands of
+    // functions in a large library, so marking those would mark half the
+    // canvas. Only a reason that says something about intent counts as a door.
+    state.entries = new Set(
+      (data.entryPoints || [])
+        .filter(function (e) {
+          // "nothing calls it" is structural, and a test is a way into the
+          // test suite rather than into the program. Marking either would
+          // mark half the canvas.
+          return e.reasons.some(function (r) {
+            return r !== 'no_callers' && r !== 'test';
+          });
+        })
+        .map(function (e) { return e.id; })
+    );
     return layout(new Set(data.initialView.collapsed));
   }
 

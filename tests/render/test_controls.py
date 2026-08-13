@@ -220,3 +220,14 @@ def test_a_small_group_is_not_labelled_with_a_count(tmp_path, page, sample_viewm
     page.wait_for_function("CC.view.ready === true")
     label = page.evaluate("document.querySelector('#entry-select optgroup').label")
     assert "of" not in label, label
+
+
+def test_the_info_panel_explains_the_visual_conventions(graph_page):
+    """Solid versus dashed, the badges, the gutter glyphs and the chips were
+    not written down anywhere in the interface."""
+    graph_page.click("#info")
+    text = graph_page.locator("#info-panel").inner_text().lower()
+    assert "how to read it" in text
+    for phrase in ("solid line", "dashed line", "entry", "unused",
+                   "conditional", "loop", "package"):
+        assert phrase in text, phrase

@@ -11,6 +11,7 @@
   --inferred: #d69e2e;
   --ambiguous: #a0aec0;
   --orphan: #6b7280;
+  --entry: #4ade80;
   --kw: #c792ea;
   --str: #7fd88f;
   --num: #f78c6c;
@@ -33,6 +34,7 @@
   --inferred: #b45309;
   --ambiguous: #64748b;
   --orphan: #9aa4b2;
+  --entry: #15803d;
   --kw: #8b3fb8;
   --str: #067d3c;
   --num: #b34700;
@@ -117,6 +119,14 @@ html, body {
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
 .card.active { border-color: var(--active); box-shadow: 0 0 0 2px var(--active); }
 .card.dimmed { opacity: 0.18; }
+/* A way into the program. The tool exists for someone asking where to start,
+   so the answer should be on the canvas, not only in a menu. */
+.card.entry { box-shadow: inset 0 0 0 1px var(--entry); }
+.card.entry .card-name::after {
+  content: "entry"; margin-left: 6px; padding: 0 5px;
+  border: 1px solid var(--entry); border-radius: 6px;
+  color: var(--entry); font-size: 9px; text-transform: uppercase;
+}
 .card.orphan .card-name::after {
   content: "unused"; margin-left: 6px; padding: 0 5px;
   border: 1px solid var(--orphan); border-radius: 6px;
@@ -276,6 +286,12 @@ html, body {
 #info-panel td { padding: 2px 0; }
 #info-panel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
 #info-panel .skipped { color: var(--muted); font-size: 11px; word-break: break-all; }
+#info-panel table.legend td { padding: 3px 0; vertical-align: top; font-size: 11px; }
+#info-panel table.legend td.sample {
+  width: 96px; padding-right: 10px; color: var(--text);
+  font-family: ui-monospace, monospace; white-space: nowrap; text-align: left;
+}
+#info-panel table.legend td:last-child { text-align: left; color: var(--muted); }
 
 #breadcrumb, #caption {
   position: absolute; left: 10px; padding: 5px 10px; border-radius: 7px;

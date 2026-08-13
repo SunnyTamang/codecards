@@ -334,3 +334,23 @@ def test_a_plain_uncalled_function_is_still_reported(tmp_path):
     root = project(tmp_path, {"m.py": "def nobody_calls_me():\n    pass\n"})
     graph, _ = analyze([root])
     assert graph.nodes["m.nobody_calls_me"].implicitly_called is False
+
+
+def test_a_decorator_in_a_test_file_is_not_an_entry_point(tmp_path):
+    """Nothing in a test file is a door into the program. Without this the
+    rule fires on test metadata: scikit-learn has 2,170
+    @pytest.mark.parametrize alone, which swamped the entry-point menu."""
+    root = project(tmp_path, {
+        "tests/test_thing.py": (
+            "import pytest\n"
+            "\n"
+            "@pytest.mark.parametrize('x', [1, 2])\n"
+            "def test_it(x):\n    pass\n"
+        ),
+        "app.py": "import click\n\n@click.command()\ndef run():\n    pass\n",
+    })
+    graph, _ = analyze([root])
+    decorated = {h.node_id for h in graph.entry_hints
+                 if h.reason is EntryReason.DECORATED}
+    assert "tests.test_thing.test_it" not in decorated
+    assert "app.run" in decorated, "a real framework decorator must still count"

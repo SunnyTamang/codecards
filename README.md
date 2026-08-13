@@ -76,6 +76,11 @@ sometimes, or many times, is most of what understanding a flow means.
 Select a card to dim everything outside its neighbourhood, and widen the radius
 to answer "what does this touch, and what would I break by changing it".
 
+Ways into the program carry an `entry` chip: a `__main__` block, a console
+script, or a framework decorator such as a route. Tests and functions that
+merely have no callers are left unmarked, since marking those marks half the
+canvas.
+
 Cards nothing calls carry an `unused` badge, so you can see which parts of the
 map you are free to ignore. Methods the language calls for you are exempt: a
 `__eq__` runs on every `==` and a property on every attribute access, so
@@ -93,6 +98,9 @@ Edges are drawn according to how certain the analysis is:
 | Solid | resolved | The target is statically determined - an import, module scope, `self` through the MRO, an annotated type, or a local constructor |
 | Dashed | inferred | An attribute call with no type information, but exactly one function in the codebase has that name |
 | Hidden by default | ambiguous | Several functions share that name, so no single target is trusted. Toggle them on to see the candidates |
+
+The `i` button lists what every style on the canvas means, alongside the
+resolution figures.
 
 Every run prints its resolution rate. A high rate means the picture is
 trustworthy; a low one means the codebase leans on dynamic dispatch and you

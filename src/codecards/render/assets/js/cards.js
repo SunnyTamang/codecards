@@ -104,6 +104,7 @@ CC.cards = (function () {
       'hsl(' + packageHue(node.parent || node.id) + ' 62% 58%)');
     if (opts.isContainer) card.classList.add('container');
     if (opts.isOrphan) card.classList.add('orphan');
+    if (opts.isEntry) card.classList.add('entry');
 
     const head = el('div', 'card-head');
     head.appendChild(el('span', 'card-icon', KIND_ICON[node.kind] || 'ƒ'));

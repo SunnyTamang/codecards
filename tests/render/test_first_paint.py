@@ -198,3 +198,36 @@ def test_the_pin_never_overlaps_the_badges(graph_page):
     }""")
     assert result["checked"] > 0, "no card had both a pin and badges to compare"
     assert result["overlaps"] == []
+
+
+def test_a_real_entry_point_is_marked_on_the_canvas(graph_page):
+    """The tool exists for someone asking where to start, so the answer
+    belongs on the canvas and not only in a menu."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    marked = graph_page.evaluate(
+        "Array.from(document.querySelectorAll('#cards .card.entry')).map(c => c.dataset.id)")
+    assert marked == ["app.cli.main"]
+
+
+def test_structural_and_test_entry_points_are_not_marked(tmp_path, page, sample_viewmodel):
+    """"nothing calls it" matches thousands of functions in a large library and
+    a test is a way into the suite, not the program. Marking either would mark
+    half the canvas: on scikit-learn it was 4,444 of 8,734 callables."""
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    vm["entryPoints"] = [
+        {"id": "app.cli.main", "reasons": ["no_callers"]},
+        {"id": "app.cli.load_config", "reasons": ["test"]},
+        {"id": "app.mail.Mailer.send", "reasons": ["console_script"]},
+    ]
+    out = tmp_path / "entries.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+    page.evaluate("CC.view.layout(new Set())")
+    page.wait_for_function("CC.view.ready === true")
+    marked = page.evaluate(
+        "Array.from(document.querySelectorAll('#cards .card.entry')).map(c => c.dataset.id)")
+    assert marked == ["app.mail.Mailer.send"]

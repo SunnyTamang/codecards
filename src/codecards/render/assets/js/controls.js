@@ -19,6 +19,37 @@ CC.controls = (function () {
   // reason to trust any of them is not information, it is noise.
   const visibleTiers = new Set(['resolved', 'inferred']);
 
+  //: Everything the canvas says without words. None of it was written down
+  //: anywhere in the interface before.
+  const LEGEND = [
+    ['edge resolved', 'solid line', 'the target is certain'],
+    ['edge inferred', 'dashed line', 'one definition has that name, so a guess'],
+    ['edge ambiguous', 'faint dashes', 'several candidates, none trusted, hidden by default'],
+    ['chip entry', 'entry', 'a way into the program'],
+    ['chip unused', 'unused', 'nothing calls it, and the language does not either'],
+    ['badge', '\u2193 \u2191 \u21ba', 'calls in, calls out, calls that stay inside'],
+    ['glyph', '\u2442 \u21bb', 'this call sits in a conditional, or in a loop'],
+    ['pin', '\u25c9', 'hold this card open at full source while you zoom out'],
+    ['colour', 'card edge', 'grouped by the package a card belongs to'],
+  ];
+
+  function buildLegend() {
+    const table = document.createElement('table');
+    table.className = 'legend';
+    LEGEND.forEach(function (row) {
+      const tr = document.createElement('tr');
+      const sample = document.createElement('td');
+      sample.className = 'sample ' + row[0].split(' ')[0];
+      sample.textContent = row[1];
+      const what = document.createElement('td');
+      what.textContent = row[2];
+      tr.appendChild(sample);
+      tr.appendChild(what);
+      table.appendChild(tr);
+    });
+    return table;
+  }
+
   function status(text) {
     document.getElementById('statusbar').textContent = text;
   }
@@ -130,6 +161,11 @@ CC.controls = (function () {
       table.appendChild(tr);
     });
     host.appendChild(table);
+
+    const legend = document.createElement('h3');
+    legend.textContent = 'How to read it';
+    host.appendChild(legend);
+    host.appendChild(buildLegend());
 
     const note = document.createElement('p');
     note.className = 'skipped';

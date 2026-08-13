@@ -229,8 +229,15 @@ def _entry_hints(graph: CodeGraph, table: SymbolTable, roots: list[Path]) -> lis
     for qualname, definition in sorted(table.definitions.items()):
         if definition.kind not in (NodeKind.FUNCTION, NodeKind.METHOD):
             continue
+        in_test_file = _looks_like_a_test_file(definition.location.file)
         for decorator in definition.decorators:
             if _is_behaviour_decorator(decorator):
+                continue
+            # Nothing in a test file is a door into the program. Without this
+            # the rule fires on test metadata: scikit-learn has 2,170
+            # @pytest.mark.parametrize alone, which swamped both the
+            # entry-point menu and the markers on the canvas.
+            if in_test_file:
                 continue
             if not _decorator_is_internal(decorator, qualname, table):
                 hints.append(EntryHint(qualname, EntryReason.DECORATED))
