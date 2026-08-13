@@ -188,3 +188,35 @@ def test_hiding_a_dunder_folds_its_edge_onto_the_class(tmp_path, page, sample_vi
     page.wait_for_timeout(200)
     assert page.locator(
         "#edges path[data-edge='app.cli.main->app.mail.Mailer.__init__']").count() == 1
+
+
+def test_a_huge_entry_point_group_is_capped(tmp_path, page, sample_viewmodel):
+    """"nothing calls it" is a structural fallback, so on a large library it
+    matches thousands of functions. scikit-learn produced 6,014 of them and a
+    menu nobody could use."""
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    vm["entryPoints"] = [{"id": f"app.mod.fn{i}", "reasons": ["no_callers"]}
+                         for i in range(200)]
+    out = tmp_path / "many.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+
+    # one blank "Walk through..." option plus the capped group
+    assert page.locator("#entry-select option").count() == 51
+    label = page.evaluate("document.querySelector('#entry-select optgroup').label")
+    assert "50 of 200" in label, label
+
+
+def test_a_small_group_is_not_labelled_with_a_count(tmp_path, page, sample_viewmodel):
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    out = tmp_path / "few.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+    label = page.evaluate("document.querySelector('#entry-select optgroup').label")
+    assert "of" not in label, label

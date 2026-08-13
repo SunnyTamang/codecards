@@ -57,6 +57,15 @@ def resolve_calls(
     return resolver.run()
 
 
+#: An ambiguous call is drawn to every candidate, which is only informative
+#: while the candidates are few. Past this many the edge says "it could be
+#: anything" and stops being worth drawing: on scikit-learn, `.fit()` has 314
+#: definitions, so its ambiguous calls alone produced 1.5 million edges and a
+#: 250MB page. Such calls are still counted as ambiguous in the summary; they
+#: simply do not draw.
+MAX_AMBIGUOUS_CANDIDATES = 6
+
+
 def to_edges(calls: list[ResolvedCall]) -> list[Edge]:
     grouped: dict[tuple[str, str, Confidence], list[CallSite]] = {}
     for call in calls:
@@ -64,6 +73,8 @@ def to_edges(calls: list[ResolvedCall]) -> list[Edge]:
         if call.target is not None:
             targets = (call.target,)
         elif call.confidence is Confidence.AMBIGUOUS:
+            if len(call.candidates) > MAX_AMBIGUOUS_CANDIDATES:
+                continue
             targets = call.candidates
         else:
             continue

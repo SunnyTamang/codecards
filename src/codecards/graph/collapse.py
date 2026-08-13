@@ -10,10 +10,10 @@ from dataclasses import dataclass
 
 from .model import (
     CONFIDENCE_ORDER,
+    CONTAINER_KINDS,
     DRAWN,
     CodeGraph,
     Confidence,
-    NodeKind,
 )
 
 
@@ -62,28 +62,51 @@ def is_visible(graph: CodeGraph, node_id: str, collapsed: set[str]) -> bool:
 
 
 def default_collapsed(graph: CodeGraph) -> set[str]:
-    """The opening view: no callables on the canvas, only containers.
+    """The opening view: the top level of containers, everything below shut.
 
-    Collapsing every module is not enough. A package's `__init__.py`
-    definitions are parented to the package node, not to a module, so
-    "collapse every module" left them on the canvas: analysing codecards put
-    twelve loose functions from `extract/__init__.py` into what is meant to be
-    a module map, which is the hairball this view exists to prevent.
+    Two rules that look reasonable both fail badly on real projects.
 
-    So the rule is every module, plus anything else that directly contains a
-    callable. Modules stay uniformly collapsed, which is what makes the view a
-    module map; a package whose `__init__.py` carries logic collapses too and
-    becomes one card until it is opened; a package containing only modules
-    stays open, so the modules inside it are visible.
+    Collapsing anything that holds a callable sounds right, but a package
+    whose `__init__.py` defines a single function then collapses the whole
+    package: scikit-learn opens as one card with its 47 subpackages hidden
+    behind one loose helper.
+
+    Collapsing only what has no container children fails the other way, and
+    opens scikit-learn on 2,964 cards, 1,714 of them loose functions.
+
+    So the view descends from the roots to the first level that holds more
+    than one container, and shuts everything from there down. That is the
+    project's top-level structure, which is what someone opening an
+    unfamiliar codebase wants first. It descends through single-container
+    chains so a project that is one package does not open on one card.
     """
-    holds_a_callable = {
-        node.parent for node in graph.callables() if node.parent is not None
-    }
-    return {
-        n.id for n in graph.nodes.values()
-        if n.kind is NodeKind.MODULE or n.id in holds_a_callable
-    }
+    children: dict[str, list] = {}
+    for node in graph.nodes.values():
+        if node.parent is not None:
+            children.setdefault(node.parent, []).append(node)
 
+    def containers(nodes):
+        return [n for n in nodes if n.kind in CONTAINER_KINDS]
+
+    level = [n for n in graph.nodes.values() if n.parent is None]
+    while True:
+        here = containers(level)
+        if len(here) != 1:
+            break
+        below = children.get(here[0].id, [])
+        if not containers(below):
+            break
+        level = below
+
+    frontier = [n.id for n in containers(level)]
+    collapsed = set(frontier)
+    stack = list(frontier)
+    while stack:
+        for child in children.get(stack.pop(), []):
+            if child.kind in CONTAINER_KINDS and child.id not in collapsed:
+                collapsed.add(child.id)
+                stack.append(child.id)
+    return collapsed
 
 def collapse(graph: CodeGraph, collapsed: set[str]) -> ViewGraph:
     visible = tuple(

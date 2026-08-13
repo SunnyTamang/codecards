@@ -61,6 +61,9 @@ html, body {
 }
 #toolbar .brand { font-weight: 700; letter-spacing: 0.2px; margin-right: 4px; }
 #toolbar input[type="search"] { flex: 1 1 200px; max-width: 320px; }
+/* A select sizes to its widest option, and a deeply nested qualified name is
+   very wide indeed, which pushed the rest of the toolbar onto a second row. */
+#entry-select { max-width: 260px; }
 #toolbar input, #toolbar select, #toolbar button {
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--line); border-radius: 6px;

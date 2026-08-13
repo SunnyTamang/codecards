@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from codecards.extract.calls import resolve_calls, to_edges
+from codecards.extract.calls import MAX_AMBIGUOUS_CANDIDATES, resolve_calls, to_edges
 from codecards.extract.discovery import SkippedFile
 from codecards.extract.symbols import build_symbol_table
 from codecards.graph.model import Confidence
@@ -944,3 +944,41 @@ def test_module_level_functions_participate_in_inference(tmp_path):
         "b.py": "def go(thing):\n    thing.uniquely_named()\n",
     })
     assert result[("b.go", "a.uniquely_named")] is Confidence.INFERRED
+
+
+def test_a_wildly_ambiguous_call_draws_no_edges(tmp_path):
+    """An ambiguous call fans out to every candidate, which is informative
+    while the candidates are few and useless when they are not. On
+    scikit-learn `.fit()` has 314 definitions, and its ambiguous calls alone
+    produced 1.5 million edges and a 250MB page.
+
+    Goes through to_edges, since that is where the fan-out happens: a
+    ResolvedCall carries the candidates but no target."""
+    def fan_out(root, candidates):
+        root.mkdir(parents=True, exist_ok=True)
+        for i in range(candidates):
+            (root / f"m{i}.py").write_text(f"class C{i}:\n    def go(self):\n        pass\n")
+        (root / "caller.py").write_text("def use(thing):\n    thing.go()\n")
+        table, _ = build_symbol_table(sorted(root.rglob("*.py")), [root])
+        return [e for e in to_edges(resolve_calls(table)) if e.source == "caller.use"]
+
+    at_cap = fan_out(tmp_path / "at", MAX_AMBIGUOUS_CANDIDATES)
+    assert len(at_cap) == MAX_AMBIGUOUS_CANDIDATES
+    assert all(e.confidence is Confidence.AMBIGUOUS for e in at_cap)
+
+    over = fan_out(tmp_path / "over", MAX_AMBIGUOUS_CANDIDATES + 1)
+    assert over == [], "past the cap the call should draw nothing at all"
+
+
+def test_an_undrawn_ambiguous_call_is_still_counted(tmp_path):
+    """Dropping the edges must not quietly improve the resolution rate: the
+    call is still ambiguous, it just is not worth drawing."""
+    root = tmp_path / "big"
+    root.mkdir()
+    for i in range(MAX_AMBIGUOUS_CANDIDATES + 5):
+        (root / f"m{i}.py").write_text(f"class C{i}:\n    def go(self):\n        pass\n")
+    (root / "caller.py").write_text("def use(thing):\n    thing.go()\n")
+    table, _ = build_symbol_table(sorted(root.rglob("*.py")), [root])
+    calls = resolve_calls(table)
+    assert any(c.caller == "caller.use" and c.confidence is Confidence.AMBIGUOUS
+               for c in calls)

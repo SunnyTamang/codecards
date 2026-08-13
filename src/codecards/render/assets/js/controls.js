@@ -4,6 +4,9 @@
 window.CC = window.CC || {};
 
 CC.controls = (function () {
+  //: Most a single entry-point group lists before it stops being a menu.
+  const MAX_ENTRIES_PER_GROUP = 50;
+
   const REASON_LABEL = {
     main_block: '__main__ block',
     console_script: 'console script',
@@ -49,8 +52,16 @@ CC.controls = (function () {
     });
     Object.keys(grouped).forEach(function (reason) {
       const group = document.createElement('optgroup');
-      group.label = REASON_LABEL[reason] || reason;
-      grouped[reason].forEach(function (entry) {
+      const all = grouped[reason];
+      // "nothing calls it" is a structural fallback, so on a large library it
+      // matches thousands of functions: scikit-learn produced 6,014 of them
+      // and a menu nobody could use. The count stays honest in the label.
+      const shown = all.slice(0, MAX_ENTRIES_PER_GROUP);
+      group.label = (REASON_LABEL[reason] || reason) +
+        (all.length > shown.length
+          ? ' (' + shown.length + ' of ' + all.length + ')'
+          : '');
+      shown.forEach(function (entry) {
         const option = document.createElement('option');
         option.value = entry.id;
         option.textContent = entry.id;

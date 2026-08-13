@@ -91,31 +91,48 @@ def test_default_collapsed_holds_every_container_of_a_callable():
     assert default_collapsed(build()) == {"app.cli", "app.mail", "app.mail.H"}
 
 
-def test_a_package_whose_init_holds_functions_is_collapsed():
-    """The case that motivated the rule: analysing codecards put twelve loose
-    functions from extract/__init__.py onto the module map."""
+def test_a_package_below_the_top_level_is_collapsed():
+    """The concern that motivated this: a package whose __init__.py carries
+    logic used to drop its loose functions onto the module map."""
     nodes = [
-        Node(id="pkg", kind=NodeKind.PACKAGE, name="pkg"),
-        Node(id="pkg.helper", kind=NodeKind.FUNCTION, name="helper", parent="pkg"),
-        Node(id="pkg.sub", kind=NodeKind.MODULE, name="sub", parent="pkg"),
-        Node(id="pkg.sub.go", kind=NodeKind.FUNCTION, name="go", parent="pkg.sub"),
+        Node(id="app", kind=NodeKind.PACKAGE, name="app"),
+        Node(id="app.one", kind=NodeKind.PACKAGE, name="one", parent="app"),
+        Node(id="app.one.helper", kind=NodeKind.FUNCTION, name="helper", parent="app.one"),
+        Node(id="app.one.sub", kind=NodeKind.MODULE, name="sub", parent="app.one"),
+        Node(id="app.two", kind=NodeKind.MODULE, name="two", parent="app"),
     ]
     graph = CodeGraph(nodes={n.id: n for n in nodes}, edges=[])
-    assert "pkg" in default_collapsed(graph)
-    assert "pkg.helper" not in collapse(graph, default_collapsed(graph)).visible
+    visible = collapse(graph, default_collapsed(graph)).visible
+    assert "app.one" in visible
+    assert "app.one.helper" not in visible
+    assert "app.one.sub" not in visible
 
 
-def test_a_package_holding_only_modules_stays_open():
-    """Otherwise the module map inside it would be hidden for no reason."""
+def test_the_view_descends_through_single_container_chains():
+    """A project that is one package must not open on one card."""
     nodes = [
         Node(id="pkg", kind=NodeKind.PACKAGE, name="pkg"),
-        Node(id="pkg.sub", kind=NodeKind.MODULE, name="sub", parent="pkg"),
-        Node(id="pkg.sub.go", kind=NodeKind.FUNCTION, name="go", parent="pkg.sub"),
+        Node(id="pkg.a", kind=NodeKind.MODULE, name="a", parent="pkg"),
+        Node(id="pkg.b", kind=NodeKind.MODULE, name="b", parent="pkg"),
     ]
     graph = CodeGraph(nodes={n.id: n for n in nodes}, edges=[])
-    assert "pkg" not in default_collapsed(graph)
-    assert "pkg.sub" in collapse(graph, default_collapsed(graph)).visible
+    visible = collapse(graph, default_collapsed(graph)).visible
+    assert {"pkg", "pkg.a", "pkg.b"} <= set(visible)
 
+
+def test_one_loose_function_does_not_hide_the_whole_project():
+    """scikit-learn's root defines 47 subpackages and one helper. Collapsing
+    the root to hide that helper hid all 47 and opened the page on a single
+    card."""
+    nodes = [Node(id="root", kind=NodeKind.PACKAGE, name="root"),
+             Node(id="root.helper", kind=NodeKind.FUNCTION, name="helper", parent="root")]
+    for i in range(20):
+        nodes.append(Node(id=f"root.p{i}", kind=NodeKind.PACKAGE, name=f"p{i}", parent="root"))
+        nodes.append(Node(id=f"root.p{i}.m", kind=NodeKind.MODULE, name="m", parent=f"root.p{i}"))
+    graph = CodeGraph(nodes={n.id: n for n in nodes}, edges=[])
+    visible = collapse(graph, default_collapsed(graph)).visible
+    assert len([i for i in visible if graph.nodes[i].kind is NodeKind.PACKAGE]) == 21
+    assert "root.p0.m" not in visible
 
 def test_view_edges_are_deterministically_ordered():
     a = collapse(build(), collapsed={"app.mail"})
