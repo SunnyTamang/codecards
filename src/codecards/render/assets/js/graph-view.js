@@ -151,7 +151,11 @@ CC.view = (function () {
                          ',bottom=' + PAD + ',right=' + PAD + ']',
         };
       } else {
-        const box = CC.cards.boxFor(counts.inCount[id] || 0);
+        const fanIn = counts.inCount[id] || 0;
+        const shown = [fanIn, counts.outCount[id] || 0, state.internalCounts[id] || 0]
+          .filter(Boolean).length;
+        const named = state.data.nodeIndex[id];
+        const box = CC.cards.boxFor(fanIn, named && named.name, shown);
         node.width = box.w;
         node.height = box.h;
       }

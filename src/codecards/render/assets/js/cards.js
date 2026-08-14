@@ -50,7 +50,21 @@ CC.cards = (function () {
     return 4;
   }
 
-  function boxFor(fanIn) { return BOX[magnitudeFor(fanIn)]; }
+  // Roughly how wide a character of the name is at each magnitude's type size.
+  const CHAR = [10.4, 9.1, 8.1, 7.3, 6.8];
+  const BADGE = 48;   // one label-over-figure readout
+  const CHROME = 74;  // icon, gaps, and the room the two corner controls need
+
+  // Magnitude decides how much room a card gets beyond what it needs; it must
+  // never decide whether the card can show its own name. A narrow box plus
+  // three count readouts pushed "render" out as "ren...", which loses the one
+  // thing the card exists to say.
+  function boxFor(fanIn, name, badges) {
+    const mag = magnitudeFor(fanIn);
+    const base = BOX[mag];
+    const needed = CHROME + String(name || '').length * CHAR[mag] + (badges || 0) * BADGE;
+    return { w: Math.max(base.w, Math.ceil(needed)), h: base.h };
+  }
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);

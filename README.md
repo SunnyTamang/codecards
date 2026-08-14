@@ -9,6 +9,12 @@ model fast.
 No server, no extension, no account. One file you can open offline, commit, or
 hang off a pull request.
 
+![The opening view: modules as ruled plates on a coordinate field, sized by how
+many callers each has](screenshots/overview.webp)
+
+*codecards run over its own source. Size is fan-in, so `graph` reads as
+load-bearing before you have read a single name.*
+
 ## Install
 
 ```bash
@@ -73,6 +79,9 @@ detail is *available* and you decide which card spends the space.
 Pin a card to hold it open while you zoom back out, so you can read one
 function without losing sight of the whole map.
 
+![A pinned card showing its real source, syntax highlighted, with the lines
+that make calls marked in the gutter](screenshots/source.webp)
+
 At source zoom, a call marks the line that makes it, and the gutter says whether
 that call sits inside a conditional or a loop. Knowing a call happens only
 sometimes, or many times, is most of what understanding a flow means.
@@ -115,6 +124,15 @@ alongside the resolution figures.
 Every run prints its resolution rate. A high rate means the picture is
 trustworthy; a low one means the codebase leans on dynamic dispatch and you
 should read the dashed edges with suspicion.
+
+### Walking an entry point
+
+Pick a way in and press play. The trail along the top is where you are, the
+caption names the call being made and the line making it, and the card being
+called is marked while the step lasts.
+
+![The walkthrough player mid-run, with the call chain along the top and the
+calling line highlighted inside the open card](screenshots/walkthrough.webp)
 
 ## What static analysis cannot see
 
