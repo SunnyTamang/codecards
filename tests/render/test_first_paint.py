@@ -151,27 +151,63 @@ def test_an_empty_graph_paints_without_error(tmp_path, page):
     page.wait_for_function("window.CC && CC.view && CC.view.ready === true")
     assert errors == []
 
-def test_arrowheads_are_actually_visible(graph_page):
-    """`#edges path { fill: none }` applies to the marker paths in <defs> too,
-    so an arrowhead with no fill of its own renders as nothing at all. The
-    marker classes are prefixed to avoid colliding with the tier selectors
-    that style and count real edges, which is what removed their fill."""
+def test_arrowheads_and_connector_dots_are_actually_visible(graph_page):
+    """Heads are drawn geometry, not SVG markers, because a marker is sized
+    from stroke-width and so grows with the canvas transform while the lines
+    carry non-scaling-stroke and do not. A head needs a stroke and a dot needs
+    a fill; `#edges path { fill: none }` covers the head and would erase a dot
+    that relied on the same declaration."""
     got = graph_page.evaluate("""(() => {
-        return Array.from(document.querySelectorAll('#edges marker path')).map(h => {
-            const cs = getComputedStyle(h);
-            return {cls: h.getAttribute('class'), fill: cs.fill, stroke: cs.stroke};
-        });
+        const heads = Array.from(document.querySelectorAll('#edges .edge-head'));
+        const dots = Array.from(document.querySelectorAll('#edges .edge-dot'));
+        const look = (n) => {
+            const cs = getComputedStyle(n);
+            return {cls: n.getAttribute('class'), fill: cs.fill, stroke: cs.stroke};
+        };
+        return {heads: heads.map(look), dots: dots.map(look)};
     })()""")
-    assert got, "no arrowhead markers were defined"
-    for head in got:
-        assert head["fill"] != "none", f"{head['cls']} has no fill and cannot be seen"
+    assert got["heads"], "no arrowheads were drawn"
+    assert got["dots"], "no connector dots were drawn"
+    for head in got["heads"]:
+        assert head["stroke"] != "none", f"{head['cls']} has no stroke and cannot be seen"
+    for dot in got["dots"]:
+        assert dot["fill"] != "none", f"{dot['cls']} has no fill and cannot be seen"
 
 
-def test_marker_paths_do_not_match_the_edge_tier_selectors(graph_page):
-    """A marker carrying a bare tier name inflates every count of drawn edges
-    at that tier, which made the confidence-toggle assertions unfalsifiable."""
+def test_edge_decoration_does_not_match_the_tier_selectors(graph_page):
+    """Three marks are drawn per edge. If the head or the dot carried a bare
+    tier name it would inflate every count of drawn edges at that tier, which
+    is what made the confidence-toggle assertions unfalsifiable before."""
     for tier in ("resolved", "inferred", "ambiguous", "active"):
-        assert graph_page.locator(f"#edges marker path.{tier}").count() == 0
+        drawn = graph_page.locator(f"#edges path.{tier}").count()
+        anchored = graph_page.locator(f"#edges path.{tier}[data-edge]").count()
+        assert drawn == anchored, f"something other than a line carries .{tier}"
+        assert graph_page.locator(f"#edges .edge-head.{tier}").count() == 0
+        assert graph_page.locator(f"#edges .edge-dot.{tier}").count() == 0
+
+
+def test_the_arrowhead_stays_one_weight_with_the_line_at_any_zoom(graph_page):
+    """The defect this replaced: markers scale with the transform and
+    non-scaling strokes do not, so zooming in grew the head while the line it
+    belonged to stayed a hairline."""
+
+    def head_span():
+        return graph_page.evaluate("""(() => {
+            const h = document.querySelector('#edges .edge-head');
+            const b = h.getBBox();
+            const s = CC.canvas.getView().scale;
+            return Math.max(b.width, b.height) * s;   // on-screen size
+        })()""")
+
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 0.7})")
+    graph_page.wait_for_timeout(80)
+    small = head_span()
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 2.4})")
+    graph_page.wait_for_timeout(80)
+    large = head_span()
+    assert abs(large - small) < 2, (
+        f"arrowhead is {small:.1f}px on screen at 0.7 and {large:.1f}px at 2.4"
+    )
 
 
 def test_the_pin_never_overlaps_the_badges(graph_page):

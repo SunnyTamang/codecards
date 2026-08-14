@@ -21,6 +21,7 @@ JS_ORDER = (
     "zoom.js",
     "cards.js",
     "edges.js",
+    "drag.js",
     "focus.js",
     "panel.js",
     "graph-view.js",

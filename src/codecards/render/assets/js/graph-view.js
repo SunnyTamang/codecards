@@ -222,6 +222,100 @@ CC.view = (function () {
     return { inCount: inCount, outCount: outCount };
   }
 
+  // ---- moving things ----
+  // ELK gives the opening arrangement. From then on state.boxes is the truth,
+  // and a drag edits it directly: no second coordinate system to keep in sync,
+  // and edges keep reading the same boxes they always did.
+
+  function depthOf(id) {
+    let depth = 0;
+    let cursor = state.data.parentIndex[id];
+    while (cursor) { depth++; cursor = state.data.parentIndex[cursor]; }
+    return depth;
+  }
+
+  // Every leaf under a node, which is what actually carries a position. A
+  // container's box is derived, so moving one means moving its members.
+  function movableUnder(id) {
+    const out = [];
+    (function walk(node) {
+      const kids = childrenOf(node).filter(function (c) { return state.visible.has(c); });
+      if (!kids.length || state.collapsed.has(node)) { out.push(node); return; }
+      kids.forEach(walk);
+    })(id);
+    return out;
+  }
+
+  function isDrawnContainer(id) {
+    return !state.collapsed.has(id) &&
+      childrenOf(id).some(function (c) { return state.visible.has(c); });
+  }
+
+  function moveBy(ids, dx, dy) {
+    ids.forEach(function (id) {
+      const box = state.boxes[id];
+      if (box) { box.x += dx; box.y += dy; }
+    });
+  }
+
+  // Deepest first, so a module re-fits around a class that has already
+  // re-fitted around its methods. Any other order leaves the outer plate one
+  // frame behind whenever something nested moves.
+  function refitContainers() {
+    const containers = Object.keys(state.boxes)
+      .filter(isDrawnContainer)
+      .sort(function (a, b) { return depthOf(b) - depthOf(a); });
+
+    containers.forEach(function (id) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      childrenOf(id).forEach(function (child) {
+        const box = state.visible.has(child) && state.boxes[child];
+        if (!box) return;
+        x0 = Math.min(x0, box.x);
+        y0 = Math.min(y0, box.y);
+        x1 = Math.max(x1, box.x + box.w);
+        y1 = Math.max(y1, box.y + box.h);
+      });
+      if (x0 === Infinity) return;
+      const box = state.boxes[id];
+      box.x = x0 - PAD;
+      box.y = y0 - PAD_TOP;
+      box.w = (x1 - x0) + PAD * 2;
+      box.h = (y1 - y0) + PAD_TOP + PAD;
+    });
+  }
+
+  // Siblings are the only plates that can meaningfully collide: a parent
+  // always contains its own child. Marking the one that was run into is what
+  // makes an overlap read as a consequence rather than as breakage.
+  function collidingWith(id) {
+    const box = state.boxes[id];
+    const parent = state.data.parentIndex[id];
+    if (!box) return [];
+    return Object.keys(state.boxes).filter(function (other) {
+      if (other === id) return false;
+      if (state.data.parentIndex[other] !== parent) return false;
+      if (!isDrawnContainer(other)) return false;
+      const b = state.boxes[other];
+      return box.x < b.x + b.w && b.x < box.x + box.w &&
+             box.y < b.y + b.h && b.y < box.y + box.h;
+    });
+  }
+
+  // Push state.boxes back onto the DOM without rebuilding anything. Called on
+  // every pointermove, so it touches only the two properties that changed.
+  function reposition() {
+    mounted.forEach(function (card, id) {
+      const box = state.boxes[id];
+      if (!box) return;
+      card.style.left = box.x + 'px';
+      card.style.top = box.y + 'px';
+      card.style.width = box.w + 'px';
+      if (!card.classList.contains('container')) return;
+      card.style.height = box.h + 'px';
+    });
+  }
+
   // Centre of the most-called visible object: where a reader should land when
   // the whole graph cannot fit at a readable scale.
   function brightestPoint() {
@@ -237,6 +331,67 @@ CC.view = (function () {
     });
     if (!best) return null;
     return { x: best.x + best.w / 2, y: best.y + best.h / 2 };
+  }
+
+  // Just the edge layer. Cheap enough to run on hover, where the cards are
+  // unchanged and only the point a line leaves from has moved.
+  // The boxes as actually drawn. An open card grows past the box layout
+  // reserved for it, so ports taken from the layout box would start a line
+  // somewhere inside the card the reader can see.
+  function drawnBoxes() {
+    const out = Object.assign({}, state.boxes);
+    const scale = CC.canvas.getView().scale;
+    mounted.forEach(function (card, id) {
+      if (card.classList.contains('container')) return;
+      const box = state.boxes[id];
+      if (!box) return;
+      const rect = card.getBoundingClientRect();
+      const w = rect.width / scale;
+      const h = rect.height / scale;
+      if (w > box.w + 1 || h > box.h + 1) {
+        out[id] = { x: box.x, y: box.y, w: w, h: h };
+      }
+    });
+    return out;
+  }
+
+  function redrawEdges() {
+    if (!svg || !state.data) return;
+    CC.edges.render(svg, state.edges, drawnBoxes(), {
+      // World-space point an edge should leave from: the right edge of the
+      // source card, at the vertical centre of the line making the call.
+      // Measured from the DOM, because a source-tier card grows past both
+      // the width and the height that layout reserved for it.
+      anchorFor: function (edge) {
+        const card = mounted.get(edge.source);
+        if (!card || !card.classList.contains('tier-source')) return null;
+        const site = firstCallSite(edge.source, edge.target);
+        if (!site) return null;
+        const row = card.querySelector('.src-line[data-line="' + site.line + '"]');
+        if (!row) return null;
+        // The body is only laid out while the card is open. A hidden row
+        // measures zero and would anchor the edge to the card's top corner.
+        if (!row.getClientRects().length) return null;
+        // The body scrolls past a few hundred pixels of source, and a row
+        // below that fold still measures where it would have been, hundreds
+        // of pixels below the card. Anchoring to the calling line is a promise
+        // that the line is on screen; when it is not, leave from the card edge
+        // like any other edge rather than pointing at empty canvas.
+        const body = row.parentElement;
+        const bodyRect = body.getBoundingClientRect();
+        const centre = row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2;
+        if (centre < bodyRect.top || centre > bodyRect.bottom) return null;
+        const box = state.boxes[edge.source];
+        const cardRect = card.getBoundingClientRect();
+        const rowRect = row.getBoundingClientRect();
+        const scale = CC.canvas.getView().scale;
+        return {
+          x: box.x + cardRect.width / scale,
+          y: box.y + (rowRect.top + rowRect.height / 2 - cardRect.top) / scale,
+        };
+      },
+    });
+    if (CC.focus && CC.focus.active()) CC.focus.apply();
   }
 
   function paint() {
@@ -275,8 +430,21 @@ CC.view = (function () {
       cardLayer.appendChild(card);
       mounted.set(id, card);
 
+      CC.drag.attach(card, id);
+
+      // Pointing at a card opens its source, which is pure CSS, and opening it
+      // moves the point its edges leave from. Nothing else redraws on hover,
+      // so without this the lines stay anchored to the geometry the card had
+      // before it opened, and are left pointing into empty space after it
+      // closes again.
+      card.addEventListener('pointerenter', redrawEdges);
+      card.addEventListener('pointerleave', redrawEdges);
+
       const head = card.querySelector('.card-head');
       head.addEventListener('click', function () {
+        // A drag ends with a click on the thing that was dragged. Treating
+        // that as a click would expand a module every time one was moved.
+        if (CC.drag.didMove()) return;
         if (childrenOf(id).length && state.collapsed.has(id)) {
           toggle(id);
         } else {
@@ -300,31 +468,7 @@ CC.view = (function () {
     // edge against the previous frame's tier.
     if (CC.zoom) CC.zoom.apply();
 
-    CC.edges.render(svg, state.edges, state.boxes, {
-      // World-space point an edge should leave from: the right edge of the
-      // source card, at the vertical centre of the line making the call.
-      // Measured from the DOM, because a source-tier card grows past both
-      // the width and the height that layout reserved for it.
-      anchorFor: function (edge) {
-        const card = mounted.get(edge.source);
-        if (!card || !card.classList.contains('tier-source')) return null;
-        const site = firstCallSite(edge.source, edge.target);
-        if (!site) return null;
-        const row = card.querySelector('.src-line[data-line="' + site.line + '"]');
-        if (!row) return null;
-        // The body is only laid out while the card is open. A hidden row
-        // measures zero and would anchor the edge to the card's top corner.
-        if (!row.getClientRects().length) return null;
-        const box = state.boxes[edge.source];
-        const cardRect = card.getBoundingClientRect();
-        const rowRect = row.getBoundingClientRect();
-        const scale = CC.canvas.getView().scale;
-        return {
-          x: box.x + cardRect.width / scale,
-          y: box.y + (rowRect.top + rowRect.height / 2 - cardRect.top) / scale,
-        };
-      },
-    });
+    redrawEdges();
 
     if (selectedId && mounted.has(selectedId)) {
       mounted.get(selectedId).classList.add('selected');
@@ -425,5 +569,14 @@ CC.view = (function () {
     deselect: deselect,
     setTierFilter: setTierFilter,
     setShowDunders: setShowDunders,
+    movableUnder: movableUnder,
+    isDrawnContainer: isDrawnContainer,
+    moveBy: moveBy,
+    refitContainers: refitContainers,
+    collidingWith: collidingWith,
+    reposition: reposition,
+    // Back to the computed arrangement. ELK is re-run rather than a snapshot
+    // restored, so the result is the same layout a fresh open would give.
+    resetLayout: function () { return layout(state.collapsed); },
   };
 })();

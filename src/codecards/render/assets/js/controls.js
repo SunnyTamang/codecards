@@ -240,6 +240,11 @@ CC.controls = (function () {
       const root = document.documentElement;
       root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
     });
+    document.getElementById('reset-layout').addEventListener('click', function () {
+      CC.view.resetLayout();
+      status('Layout reset');
+    });
+
     document.getElementById('info').addEventListener('click', function () {
       const host = document.getElementById('info-panel');
       if (host.hidden) showInfo(); else host.hidden = true;

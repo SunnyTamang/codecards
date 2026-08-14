@@ -280,3 +280,44 @@ def test_an_expanded_container_never_opens_its_own_source(graph_page):
     assert container.locator("> .card-body").count() == 0 or not (
         container.locator("> .card-body").is_visible())
 
+
+
+def test_no_edge_starts_outside_the_card_it_leaves(graph_page):
+    """An edge leaves from the line of code making the call, measured from the
+    DOM. Two ways that used to land in empty canvas: the card grows past the
+    box layout reserved for it, and its body scrolls, so a call site below the
+    fold still measures where it would have been, far below the card.
+    """
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
+    graph_page.wait_for_timeout(120)
+
+    probe = """() => {
+        const scale = CC.canvas.getView().scale;
+        const bad = [];
+        document.querySelectorAll('#edges circle.edge-dot').forEach((dot) => {
+            const line = dot.previousElementSibling;
+            const id = line && line.dataset.edge;
+            if (!id) return;
+            const source = id.split('->')[0];
+            const card = document.querySelector(
+                '.card[data-id="' + CSS.escape(source) + '"]');
+            const box = CC.view.state.boxes[source];
+            if (!card || !box) return;
+            // Against the card as drawn, which is what the reader sees.
+            const rect = card.getBoundingClientRect();
+            const w = rect.width / scale, h = rect.height / scale;
+            const cx = +dot.getAttribute('cx'), cy = +dot.getAttribute('cy');
+            const dx = Math.max(box.x - cx, 0, cx - (box.x + w));
+            const dy = Math.max(box.y - cy, 0, cy - (box.y + h));
+            const off = Math.hypot(dx, dy);
+            if (off > 10) bad.push(id + ' is ' + Math.round(off) + 'px adrift');
+        });
+        return bad;
+    }"""
+
+    assert graph_page.evaluate(probe) == []
+    graph_page.evaluate("CC.zoom.pin('app.cli.main')")
+    graph_page.wait_for_timeout(200)
+    assert graph_page.evaluate(probe) == [], "opening a card set its edges adrift"

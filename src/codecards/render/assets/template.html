@@ -69,6 +69,10 @@
     <symbol id="i-next" viewBox="0 0 16 16"><path d="M4.5 3 12 8l-7.5 5Z"/><path d="M11.3 3h1.2v10h-1.2z"/></symbol>
     <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="0.5"/></symbol>
     <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" class="ico-line"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 16 16">
+      <path d="M13.2 8a5.2 5.2 0 1 1-1.9-4" class="ico-line"/>
+      <path d="M13.5 1.6v3.2h-3.2" class="ico-line"/>
+    </symbol>
     <symbol id="i-branch" viewBox="0 0 16 16">
       <path d="M5 13V7a3 3 0 0 1 3-3h3" class="ico-line"/><path d="M9 2l2.5 2L9 6" class="ico-line"/>
     </symbol>
@@ -116,6 +120,8 @@
       <span id="focus-hops-value">1</span>
     </label>
 
+    <button id="reset-layout" class="icon-btn" title="Put every card back where the layout put it"
+            aria-label="Reset layout"><svg class="icon"><use href="#i-reset"/></svg></button>
     <button id="info" class="icon-btn" title="What this graph does and does not know"
             aria-label="About this survey"><svg class="icon"><use href="#i-info"/></svg></button>
     <button id="theme" class="icon-btn" title="Toggle light and dark"

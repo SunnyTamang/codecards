@@ -288,6 +288,7 @@ html, body {
 
 .card {
   position: absolute;
+  cursor: grab;
   background: var(--indigo);
   border: 1px solid var(--rule);
   border-radius: 2px;
@@ -555,7 +556,22 @@ html, body {
 #edges path.resolved { stroke: var(--resolved); opacity: 0.85; }
 #edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; opacity: 0.9; }
 #edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 1.5 4; }
-#edges path.dimmed { opacity: 0.07; }
+#edges path.dimmed, #edges circle.dimmed { opacity: 0.07; }
+
+/* Head and connector dot. Both are sized against the zoom in edges.js, so
+   they need no stroke scaling of their own beyond matching the line. */
+#edges .edge-head {
+  fill: none; stroke: var(--resolved); stroke-width: 1.1;
+  stroke-linecap: round; stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+#edges .edge-head-inferred { stroke: var(--inferred); }
+#edges .edge-head-ambiguous { stroke: var(--ambiguous); }
+#edges .edge-head-active { stroke: var(--active); }
+#edges .edge-dot { fill: var(--resolved); stroke: none; }
+#edges .edge-dot-inferred { fill: var(--inferred); }
+#edges .edge-dot-ambiguous { fill: var(--ambiguous); }
+#edges .edge-dot-active { fill: var(--active); }
 #edges path.active { stroke: var(--active); stroke-width: 2.2; opacity: 1; }
 /* Figures sit on top of the lines they measure, so they carry the ground
    colour as a halo rather than a box: a chart annotation interrupts the
@@ -738,4 +754,32 @@ html, body {
   #world { transition: none !important; }
   .card, #panel, #info-panel { animation: none !important; }
   * { transition-duration: 0.01ms !important; }
+}
+
+/* ---- moving things ---- */
+
+/* The whole canvas commits to the gesture: no text selection anywhere, and no
+   hover state firing on cards the dragged one passes over. */
+body.is-dragging { cursor: grabbing; user-select: none; }
+body.is-dragging .card { cursor: grabbing; }
+body.is-dragging .card:not(.dragging) { pointer-events: none; }
+
+.card.dragging {
+  border-color: var(--amber);
+  box-shadow: var(--lift);
+  z-index: 12;
+}
+.card.container.dragging { z-index: 4; }
+
+/* A plate the dragged one has run into. Stepping the other side back is what
+   makes an overlap read as a consequence of the move rather than as damage. */
+.card.shadowed { opacity: 0.42; }
+
+/* Only sensible for something that carries its own position. A plate is
+   derived from its members, so it re-fits rather than animating. */
+.card:not(.dragging) { transition: left 0.18s var(--ease), top 0.18s var(--ease); }
+body.is-dragging .card { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .card:not(.dragging) { transition: none !important; }
 }
