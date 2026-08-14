@@ -267,3 +267,41 @@ def test_structural_and_test_entry_points_are_not_marked(tmp_path, page, sample_
     marked = page.evaluate(
         "Array.from(document.querySelectorAll('#cards .card.entry')).map(c => c.dataset.id)")
     assert marked == ["app.mail.Mailer.send"]
+
+
+def test_a_card_is_always_wide_enough_for_its_own_name(tmp_path, page, sample_viewmodel):
+    """The name is the one thing a card exists to say, and it kept losing the
+    argument. Magnitude sets the width from fan-in, while the count readouts
+    and the entry/unused chips claim their room first, so a long name beside
+    "OUT 24 INT 106" or an UNUSED chip was the part that got clipped. Plates
+    are measured on a separate path and carry the same trimmings.
+    """
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    long_name = "reconcile_conflicting_signals_for_review"
+    vm["nodes"].append({
+        "id": f"app.mail.{long_name}", "kind": "function", "name": long_name,
+        "parent": "app.mail", "file": "app/mail.py", "lineStart": 40,
+        "lineEnd": 41, "signature": "()", "summary": None, "decorators": [],
+        "implicit": False, "dunder": False,
+    })
+    # No callers, so it wears an UNUSED chip on top of its counts.
+    vm["orphans"] = [*vm.get("orphans", []), f"app.mail.{long_name}"]
+
+    out = tmp_path / "wide.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+    page.evaluate("CC.view.layout(new Set())")
+    page.wait_for_function("CC.view.ready === true")
+    page.wait_for_timeout(250)
+
+    clipped = page.evaluate("""() => {
+        const bad = [];
+        document.querySelectorAll('#cards .card .card-name').forEach((n) => {
+            if (n.scrollWidth > n.clientWidth + 1) bad.push(n.textContent);
+        });
+        return bad;
+    }""")
+    assert clipped == []

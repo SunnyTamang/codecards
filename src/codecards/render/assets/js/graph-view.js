@@ -152,10 +152,12 @@ CC.view = (function () {
         };
       } else {
         const fanIn = counts.inCount[id] || 0;
-        const shown = [fanIn, counts.outCount[id] || 0, state.internalCounts[id] || 0]
-          .filter(Boolean).length;
         const named = state.data.nodeIndex[id];
-        const box = CC.cards.boxFor(fanIn, named && named.name, shown);
+        const box = CC.cards.boxFor(fanIn, named && named.name, [
+          ['in', fanIn],
+          ['out', counts.outCount[id] || 0],
+          ['int', state.internalCounts[id] || 0],
+        ], { entry: state.entries.has(id), orphan: state.orphans.has(id) });
         node.width = box.w;
         node.height = box.h;
       }
@@ -286,6 +288,23 @@ CC.view = (function () {
       box.y = y0 - PAD_TOP;
       box.w = (x1 - x0) + PAD * 2;
       box.h = (y1 - y0) + PAD_TOP + PAD;
+    });
+    widenPlatesForTheirLabels();
+  }
+
+  function widenPlatesForTheirLabels() {
+    // Once, not once per plate: this runs on every re-fit during a drag.
+    const counts = fanCounts();
+    Object.keys(state.boxes).forEach(function (id) {
+      if (!isDrawnContainer(id)) return;
+      const node = state.data.nodeIndex[id];
+      if (!node) return;
+      const box = state.boxes[id];
+      box.w = Math.max(box.w, CC.cards.minPlateWidth(node.name, [
+        ['in', counts.inCount[id] || 0],
+        ['out', counts.outCount[id] || 0],
+        ['int', state.internalCounts[id] || 0],
+      ], { entry: state.entries.has(id), orphan: state.orphans.has(id) }));
     });
   }
 
@@ -495,6 +514,7 @@ CC.view = (function () {
     CC.view.ready = false;
     return elk.layout(buildElkTree(collapsed, state.visible)).then(function (result) {
       state.boxes = flatten(result, 0, 0, {});
+      widenPlatesForTheirLabels();
       mounted.forEach(function (card) { card.remove(); });
       mounted = new Map();
       const extent = Object.keys(state.boxes).reduce(function (acc, id) {

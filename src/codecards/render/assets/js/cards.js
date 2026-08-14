@@ -50,19 +50,75 @@ CC.cards = (function () {
     return 4;
   }
 
-  // Roughly how wide a character of the name is at each magnitude's type size.
-  const CHAR = [10.4, 9.1, 8.1, 7.3, 6.8];
-  const BADGE = 48;   // one label-over-figure readout
-  const CHROME = 74;  // icon, gaps, and the room the two corner controls need
+  // The head's type sizes, per magnitude, matching the stylesheet.
+  const NAME_PX = [19, 16.5, 14.5, 13, 12];
+  const NAME_WEIGHT = [700, 680, 650, 620, 620];
+  const SANS = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+  const ICON_PX = [19, 16, 13, 11, 9];
+  // Left padding, the room the two corner controls need, and the flex gaps
+   // between every item in the head. Erring high by a few pixels costs a
+   // little width; erring low clips the name, which is the one thing the card
+   // exists to say.
+  const GAP = 7;
+  const CHROME = 9 + 48 + GAP * 3 + 4;
+
+  // Measured, not estimated. A character-count guess has to assume an average
+  // width and a fixed size per readout, and both are wrong often enough to
+  // clip a name: "comp_graph" beside "OUT 24 INT 106" needs noticeably more
+  // room than the same name beside "IN 1".
+  const gauge = document.createElement('canvas').getContext('2d');
+
+  function textWidth(text, px, weight) {
+    gauge.font = weight + ' ' + px + 'px ' + SANS;
+    return gauge.measureText(String(text)).width;
+  }
 
   // Magnitude decides how much room a card gets beyond what it needs; it must
   // never decide whether the card can show its own name. A narrow box plus
   // three count readouts pushed "render" out as "ren...", which loses the one
   // thing the card exists to say.
-  function boxFor(fanIn, name, badges) {
+  // An annotation chip: border, padding, tracked caps, and for an entry the
+  // star that precedes the word.
+  function flagWidth(word, withIcon) {
+    return 12 + textWidth(word, 9, 600) + word.length * 1 + (withIcon ? 13 : 0);
+  }
+
+  // A plate's width comes from the box around its members, which has nothing
+  // to do with how long its own label is. A module called
+  // "synthesize_reasoning" holding one short function still has to show its
+  // name.
+  const PLATE_PX = 19;   // the serif label at card tier
+  const SERIF = 'ui-serif, "New York", "Iowan Old Style", Georgia, serif';
+
+  function minPlateWidth(name, counts, flags) {
+    // Measured first, because the trimmings leave their own font on the
+    // shared gauge and the label must not be measured through it.
+    const trimmings = trimmingsWidth(counts, flags);
+    gauge.font = 'italic 600 ' + PLATE_PX + 'px ' + SERIF;
+    const label = gauge.measureText(String(name || '')).width;
+    return Math.ceil(10 + 48 + 19 + GAP * 3 + 4 + label + trimmings);
+  }
+
+  // Everything in the head that is not the name. A plate carries the same
+  // readouts and chips a card does, so both paths measure it the same way.
+  function trimmingsWidth(counts, flags) {
+    let total = 0;
+    if (flags && flags.entry) total += flagWidth('entry', true) + GAP;
+    if (flags && flags.orphan) total += flagWidth('unused', false) + GAP;
+    (counts || []).forEach(function (pair) {
+      if (!pair[1]) return;
+      // label at 10px tracked, a 3px gap, then the figure at 12px.
+      total += textWidth(pair[0], 10, 600) + pair[0].length * 0.9 + 3 +
+               textWidth(pair[1], 12, 550) + 9;
+    });
+    return total;
+  }
+
+  function boxFor(fanIn, name, counts, flags) {
     const mag = magnitudeFor(fanIn);
     const base = BOX[mag];
-    const needed = CHROME + String(name || '').length * CHAR[mag] + (badges || 0) * BADGE;
+    const needed = CHROME + ICON_PX[mag] + trimmingsWidth(counts, flags) +
+      textWidth(name || '', NAME_PX[mag], NAME_WEIGHT[mag]);
     return { w: Math.max(base.w, Math.ceil(needed)), h: base.h };
   }
 
@@ -239,6 +295,7 @@ CC.cards = (function () {
     renderSource: renderSource,
     icon: icon,
     magnitudeFor: magnitudeFor,
+    minPlateWidth: minPlateWidth,
     boxFor: boxFor,
   };
 })();
