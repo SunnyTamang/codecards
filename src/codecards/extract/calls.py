@@ -429,6 +429,33 @@ class _Resolver:
 
         return self._infer_by_name(attribute)
 
+    def _reachable_by_name(self, qualname: str) -> bool:
+        """Whether anything outside the body holding this definition could call it.
+
+        A function defined inside another function is created when its holder
+        runs and is gone when it returns. No other module can import it or
+        name it, so it can never be what an attribute call somewhere else
+        resolves to.
+
+        This matters because such helpers are usually named for what they do
+        locally - `get`, `add`, `wrapper` - which collides with the commonest
+        method names in the language. One nested `def get(key)` made every
+        `dict.get()` call in a codebase look like a call into the function
+        that happened to hold it.
+
+        A method is not local in this sense: its holder is a class, and a
+        class is reachable.
+        """
+        parent = self.table.definitions[qualname].parent
+        while parent is not None:
+            holder = self.table.definitions.get(parent)
+            if holder is None:
+                return True
+            if holder.kind in CALLABLE_KINDS:
+                return False
+            parent = holder.parent
+        return True
+
     def _infer_by_name(
         self, attribute: str
     ) -> tuple[str | None, Confidence, tuple[str, ...]]:
@@ -437,11 +464,16 @@ class _Resolver:
         One candidate is a reasonable guess and is marked inferred. Several
         candidates are recorded but never trusted - the UI hides them by
         default, because a confident wrong arrow is worse than no arrow.
+
+        Only definitions something else could actually reach are candidates.
+        A call inside a function to a helper beside it does not come through
+        here: that is a plain name in local scope, resolved before this.
         """
         candidates = [
             qualname
             for qualname in self.table.by_simple_name.get(attribute, [])
             if self.table.definitions[qualname].kind in CALLABLE_KINDS
+            and self._reachable_by_name(qualname)
         ]
         if not candidates:
             return None, Confidence.UNRESOLVED, ()

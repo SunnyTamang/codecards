@@ -982,3 +982,55 @@ def test_an_undrawn_ambiguous_call_is_still_counted(tmp_path):
     calls = resolve_calls(table)
     assert any(c.caller == "caller.use" and c.confidence is Confidence.AMBIGUOUS
                for c in calls)
+
+
+# -- a definition nothing can reach is not a candidate ----------------------
+#
+# The inferred tier matches an attribute call against every definition with
+# that name. A function defined inside another function is created when its
+# holder runs and gone when it returns, so nothing outside can name it - yet
+# it was a candidate like any other. Those helpers are named for what they do
+# locally, which is exactly the vocabulary of the language's own methods, so
+# one `def get(key)` nested in a main() made every dict.get() call in the
+# codebase point at it.
+
+
+def test_a_nested_helper_is_not_inferred_from_another_module(tmp_path):
+    """`state.get(...)` is a dict method, not a call into somebody's main()."""
+    result = edges_for(tmp_path, {
+        "runner.py": (
+            "def main():\n"
+            "    final = {}\n"
+            "    def get(key):\n"
+            "        return final[key]\n"
+            "    return get('a')\n"
+        ),
+        "other.py": (
+            "def score(state):\n"
+            "    return state.get('reasoning')\n"
+        ),
+    })
+    assert ("other.score", "runner.main.get") not in result
+
+
+def test_a_nested_helper_is_still_called_by_the_body_holding_it(tmp_path):
+    """The rule must not cost the one call that is real: a plain name in the
+    scope that defines it, which never reaches the name-matching path."""
+    result = edges_for(tmp_path, {"runner.py": (
+        "def main():\n"
+        "    final = {}\n"
+        "    def get(key):\n"
+        "        return final[key]\n"
+        "    return get('a')\n"
+    )})
+    assert result[("runner.main", "runner.main.get")] is Confidence.RESOLVED
+
+
+def test_a_method_is_still_inferred(tmp_path):
+    """A method's holder is a class, and a class is reachable. Only functions
+    inside functions are unreachable."""
+    result = edges_for(tmp_path, {
+        "m.py": "class Mailer:\n    def deliver(self):\n        pass\n",
+        "other.py": "def go(x):\n    return x.deliver()\n",
+    })
+    assert result[("other.go", "m.Mailer.deliver")] is Confidence.INFERRED
