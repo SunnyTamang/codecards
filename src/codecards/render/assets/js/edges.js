@@ -19,7 +19,9 @@ CC.edges = (function () {
       marker.setAttribute('markerHeight', '6');
       marker.setAttribute('orient', 'auto-start-reverse');
       const head = document.createElementNS(NS, 'path');
-      head.setAttribute('d', 'M0,0 L8,4 L0,8 z');
+      // A finer point than a filled triangle. On a chart the arrow is drawn
+      // with the same pen as the line, not stamped on the end of it.
+      head.setAttribute('d', 'M0,1.4 L8,4 L0,6.6 z');
       // A bare tier name here would collide with `#edges path.<tier>`
       // selectors used to count or style real edges, since the marker's
       // <path> lives in the same document tree even though it only renders

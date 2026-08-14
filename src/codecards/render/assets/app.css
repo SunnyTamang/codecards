@@ -1,83 +1,188 @@
+/* Star atlas. The canvas is a ruled chart, callables are objects on a
+   magnitude ramp, calls are constellation lines. Ink and chalk, never glow:
+   the moment something emits light this becomes the generic dark tool it
+   was drawn to replace. */
+
 :root {
-  --bg: #0b0f17;
-  --surface: #151b26;
-  --surface-2: #1c2430;
-  --line: #2a3444;
-  --text: #dfe6f0;
-  --muted: #8695ab;
-  --accent: #4f8ff7;
-  --active: #ffcc55;
-  --resolved: #63b3ed;
-  --inferred: #d69e2e;
-  --ambiguous: #a0aec0;
-  --orphan: #6b7280;
-  --entry: #4ade80;
-  --kw: #c792ea;
-  --str: #7fd88f;
-  --num: #f78c6c;
-  --com: #6b7a90;
-  --def: #82aaff;
-  --call: #89ddff;
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  --night: #0a1021;        /* chart ground */
+  --indigo: #16233d;       /* plate fill */
+  --chart: #24374f;        /* raised fill, controls */
+  --rule: #2c3f59;         /* hairline */
+  --rule-soft: #1d2c44;    /* hairline, quiet */
+  /* The ruled ground sits behind everything and should be felt more than
+     read. Its own tokens, so quietening the field never quietens a real
+     border that has to stay visible. */
+  --grid-minor: #121c31;
+  --grid-major: #1a2740;
+  --text: #f2f2e9;         /* stardust */
+  --muted: #8794a8;        /* legible secondary, 5.1:1 on a plate */
+  --faint: #707e93;        /* rules and control borders, 3:1 minimum */
+
+  --amber: #ff4d2e;        /* annotation ink and the object under the eye */
+  --glow: #ffb36b;         /* secondary annotation */
+  --entry: #7fd1e8;        /* hot star: a way into the program */
+
+  --resolved: #c9d6e8;
+  --inferred: #ffb36b;
+  --ambiguous: #6b7a90;
+  --orphan: #6b7a90;
+  --active: #ff4d2e;
+
+  --kw: #c9a3ff;
+  --str: #9fd8a8;
+  --num: #ffb36b;
+  --com: #8592a6;
+  --def: #7fd1e8;
+  --call: #f2f2e9;
+
+  --serif: ui-serif, "New York", "Iowan Old Style", Georgia, serif;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --plate-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.7);
+  --lift: 0 18px 44px -12px rgba(0, 0, 0, 0.8);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root[data-theme="light"] {
-  --bg: #f6f7f9;
-  --surface: #ffffff;
-  --surface-2: #f0f2f5;
-  --line: #d6dbe3;
-  --text: #1c2430;
-  --muted: #64748b;
-  --accent: #2563eb;
-  --active: #b45309;
-  --resolved: #2563eb;
-  --inferred: #b45309;
-  --ambiguous: #64748b;
-  --orphan: #9aa4b2;
-  --entry: #15803d;
-  --kw: #8b3fb8;
-  --str: #067d3c;
-  --num: #b34700;
-  --com: #7a869a;
-  --def: #1d4ed8;
-  --call: #0e7490;
-  --shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  /* The day chart: the same atlas printed on paper. */
+  --night: #efece1;
+  --indigo: #f8f6ef;
+  --chart: #ffffff;
+  --rule: #c3bca8;
+  --rule-soft: #ddd8c8;
+  --grid-minor: #e7e3d6;
+  --grid-major: #dcd6c5;
+  --text: #131a2a;
+  --muted: #55606f;
+  --faint: #857d68;
+
+  --amber: #c02f10;
+  --glow: #9a5a13;
+  --entry: #10627d;
+
+  --resolved: #2f4463;
+  --inferred: #9a5a13;
+  --ambiguous: #6f7789;
+  --orphan: #6f7789;
+  --active: #c02f10;
+
+  --kw: #6b32a8;
+  --str: #216b32;
+  --num: #9a4b0c;
+  --com: #626a7c;
+  --def: #10506b;
+  --call: #131a2a;
+
+  --plate-shadow: 0 8px 22px -10px rgba(19, 26, 42, 0.28);
+  --lift: 0 16px 36px -12px rgba(19, 26, 42, 0.34);
 }
 
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0; height: 100%;
-  background: var(--bg); color: var(--text);
-  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--night); color: var(--text);
+  font: 13px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* The parts we did not draw still belong to the chart. */
+::selection { background: color-mix(in srgb, var(--amber) 32%, transparent); color: var(--text); }
+:root { scrollbar-color: var(--rule) transparent; scrollbar-width: thin; caret-color: var(--amber); }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 1px solid var(--amber); outline-offset: 2px; }
 
 #app { display: flex; flex-direction: column; height: 100%; }
 
-/* ---- toolbar ---- */
+/* ---- toolbar: the chart's upper margin ---- */
 
 #toolbar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 7px 10px; background: var(--surface);
-  border-bottom: 1px solid var(--line); z-index: 5;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px; background: var(--night);
+  border-bottom: 1px solid var(--rule); z-index: 5;
+  position: relative;
 }
-#toolbar .brand { font-weight: 700; letter-spacing: 0.2px; margin-right: 4px; }
-#toolbar input[type="search"] { flex: 1 1 200px; max-width: 320px; }
+/* The margin rule terminates in a tick, the way a plate border does. */
+#toolbar::after {
+  content: ""; position: absolute; left: 14px; right: 14px; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, var(--amber) 0 18px, transparent 18px);
+}
+#toolbar .brand {
+  display: flex; align-items: center; gap: 7px;
+  font: italic 600 17px/1 var(--serif); letter-spacing: 0.01em;
+  padding-right: 4px; margin-right: 2px;
+}
+.brand-mark { width: 13px; height: 13px; color: var(--amber); }
+
+.field { position: relative; display: flex; align-items: center; flex: 1 1 190px; max-width: 300px; }
+.field-icon {
+  position: absolute; left: 8px; width: 13px; height: 13px;
+  color: var(--muted); pointer-events: none;
+}
+#toolbar input[type="search"], #toolbar select, #toolbar button {
+  background: var(--indigo); color: var(--text);
+  border: 1px solid var(--rule); border-radius: 2px;
+  padding: 5px 9px; font: inherit;
+  transition: border-color 0.18s var(--ease), background 0.18s var(--ease);
+}
+/* After the shared control rule, or its padding shorthand resets the room
+   reserved for the leading icon and the placeholder starts under it. */
+#toolbar input[type="search"]#search { width: 100%; padding-left: 27px; }
+#toolbar input[type="search"]::placeholder { color: var(--muted); }
+#toolbar select { font-variant-numeric: tabular-nums; }
 /* A select sizes to its widest option, and a deeply nested qualified name is
    very wide indeed, which pushed the rest of the toolbar onto a second row. */
-#entry-select { max-width: 260px; }
-#toolbar input, #toolbar select, #toolbar button {
-  background: var(--surface-2); color: var(--text);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 4px 8px; font: inherit;
-}
-#toolbar button { cursor: pointer; }
-#toolbar button:hover { border-color: var(--accent); }
-#toolbar .toggle { display: flex; align-items: center; gap: 4px; color: var(--muted); }
-#transport { display: flex; gap: 4px; align-items: center; }
-#transport[hidden], #focus-control[hidden] { display: none; }
+#entry-select { max-width: 240px; }
+#toolbar button { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+#toolbar button:hover, #toolbar input:hover, #toolbar select:hover { border-color: var(--faint); }
+#toolbar button:active { background: var(--chart); }
 
-/* ---- canvas ---- */
+.icon { width: 14px; height: 14px; display: block; flex: none; }
+.icon use, .icon > * { fill: currentColor; }
+.ico-line { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
+#ico symbol { fill: currentColor; }
+.icon-btn { padding: 5px 7px !important; color: var(--muted); }
+.icon-btn:hover { color: var(--text); }
+
+#transport { display: flex; gap: 5px; align-items: center; }
+#transport[hidden], #focus-control[hidden] { display: none; }
+#play { color: var(--amber); }
+#play .lbl { font-size: 12px; }
+
+.toggles { display: flex; gap: 12px; align-items: center; }
+.toggle {
+  display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+  font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer;
+  transition: color 0.18s var(--ease);
+}
+.toggle:hover { color: var(--text); }
+/* A chart tick box rather than the platform default. The real input is
+   styled directly and keeps its own size: hiding it behind a decorated
+   sibling leaves a zero-size control that pointer tooling cannot reach and
+   that some assistive tech skips. */
+.toggle input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; margin: 0;
+  width: 12px; height: 12px; flex: none;
+  border: 1px solid var(--rule); border-radius: 0; background: transparent;
+  cursor: pointer;
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+.toggle:hover input[type="checkbox"] { border-color: var(--faint); }
+.toggle input[type="checkbox"]:checked {
+  border-color: var(--amber);
+  /* Inset ground gap, so the filled state reads as an inked box on the
+     chart rather than a solid swatch. */
+  box-shadow: inset 0 0 0 2px var(--night), inset 0 0 0 12px var(--amber);
+}
+.toggle.range { text-transform: none; letter-spacing: 0; gap: 8px; }
+#focus-hops { accent-color: var(--amber); width: 84px; }
+#focus-hops-value { font-variant-numeric: tabular-nums; color: var(--text); min-width: 1ch; }
+
+/* ---- the chart field ---- */
 
 #stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 
@@ -87,96 +192,289 @@ html, body {
 }
 #viewport.panning { cursor: grabbing; }
 
+/* Ruled coordinate ground. It does not scale with #world: canvas.js re-rules
+   it from the current transform, so a hairline stays a hairline at 4x and the
+   canvas is never dead space. */
+#field {
+  position: absolute; inset: 0; pointer-events: none;
+  --minor: 120px; --major: 600px;
+  background-image:
+    linear-gradient(to right, var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-minor) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-major) 1px, transparent 1px);
+  background-size:
+    var(--minor) var(--minor), var(--minor) var(--minor),
+    var(--major) var(--major), var(--major) var(--major);
+}
+
+/* Coordinate values, ruled into the top and left margins against the major
+   lines. This is what separates a measurement surface from a decorative
+   grid: the field is readable off, not just drawn on. */
+#ticks-top, #ticks-left { position: absolute; pointer-events: none; z-index: 1; }
+#ticks-top { top: 0; left: 0; right: 0; height: 16px; }
+#ticks-left { top: 0; left: 0; bottom: 0; width: 34px; }
+/* The device that earns this grid its place has to be the readable one.
+   --muted, not --faint: these are text and owe 4.5:1. Both axes set their
+   label after the line rather than centred on it, so a label never needs
+   space outside the viewport and gets clipped at the margin. */
+#ticks-top span, #ticks-left span {
+  position: absolute; color: var(--muted);
+  font: 10px var(--sans); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+}
+#ticks-top span { top: 3px; transform: translateX(5px); }
+#ticks-left span { left: 5px; transform: translateY(3px); }
+
+/* Chalk grain. OWN-WORLD asks for matte ink on a grained ground, and a flat
+   CSS fill is neither. One tile, generated in the document, no request. */
+#stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  opacity: 0.5; mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'>\
+<filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='3' stitchTiles='stitch'/></filter>\
+<rect width='140' height='140' filter='url(%23g)'/></svg>");
+  background-size: 140px 140px;
+}
+
 /* #world carries the pan and zoom for cards and edges together, so an edge
    endpoint can never drift from the card it points at. */
 #world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
 #edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
 #cards { position: absolute; top: 0; left: 0; }
 
-#zoom-readout {
-  position: absolute; right: 10px; bottom: 10px;
-  padding: 3px 8px; border-radius: 6px;
-  background: var(--surface); border: 1px solid var(--line);
-  color: var(--muted); font-variant-numeric: tabular-nums;
-}
+/* ---- marginal instruments ---- */
 
-/* ---- cards ---- */
+#zoom-readout, #mag-key, #breadcrumb, #caption {
+  position: absolute; z-index: 3;
+  background: var(--night);
+  border: 1px solid var(--rule);
+}
+/* Instruments are framed the way plates are: corner ticks, not a plain box. */
+#zoom-readout::before, #mag-key::before, #breadcrumb::before, #caption::before,
+#zoom-readout::after, #mag-key::after, #breadcrumb::after, #caption::after {
+  content: ""; position: absolute; width: 7px; height: 7px;
+  border: 0 solid var(--amber); opacity: 0.7;
+}
+#zoom-readout::before, #mag-key::before, #breadcrumb::before, #caption::before {
+  top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px;
+}
+#zoom-readout::after, #mag-key::after, #breadcrumb::after, #caption::after {
+  bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px;
+}
+#zoom-readout {
+  right: 12px; bottom: 12px; padding: 4px 9px;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  font-size: 11px; letter-spacing: 0.04em;
+}
+#mag-key {
+  left: 12px; bottom: 12px; padding: 8px 11px 7px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.mag-key-title, .mag-key-foot {
+  font-size: 10px; letter-spacing: 0.13em; text-transform: uppercase; color: var(--muted);
+}
+.mag-key-foot { color: var(--muted); }
+.mag-key-ramp { display: flex; align-items: center; gap: 6px; height: 13px; }
+.mag-key-ramp i { display: block; border-radius: 50%; background: var(--text); }
+.mag-key-ramp .m0 { width: 12px; height: 12px; }
+.mag-key-ramp .m1 { width: 9.5px; height: 9.5px; }
+.mag-key-ramp .m2 { width: 7px; height: 7px; }
+.mag-key-ramp .m3 { width: 5px; height: 5px; }
+.mag-key-ramp .m4 { width: 3.5px; height: 3.5px; background: var(--muted); }
+
+/* ---- objects ---- */
 
 .card {
   position: absolute;
-  background: var(--surface); border: 1px solid var(--line);
-  border-left: 3px solid var(--pkg, var(--accent));
-  border-radius: 8px; overflow: hidden;
+  background: var(--indigo);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
   contain: layout paint;
+  transition: border-color 0.2s var(--ease), box-shadow 0.28s var(--ease),
+              background 0.2s var(--ease), opacity 0.3s var(--ease);
 }
-.card.container { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.card:not(.container):hover { border-color: var(--faint); }
+
+/* A plate: the ruled enclosure a module's objects sit inside. Transparent
+   fill so the coordinate ground stays visible through it, hairline border,
+   and corner ticks that say "this is a surveyed region". */
+.card.container {
+  /* Barely a wash. A chart delineates a region with its boundary, not by
+     flooding it, and every constellation line inside this plate has to stay
+     readable through it. Nested plates stack their washes, so depth still
+     reads. */
+  background: color-mix(in srgb, var(--indigo) 16%, transparent);
+  border-color: var(--rule);
+  border-radius: 0;
+  box-shadow: none;
+}
+.card.container::before, .card.container::after {
+  content: ""; position: absolute; width: 9px; height: 9px;
+  border: 0 solid var(--amber); opacity: 0.75; pointer-events: none;
+}
+.card.container::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+.card.container::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
 /* A container's children start below its header, so anything the container
    draws under its own name is overlapped by the first child card. */
 .card.container > .card-path,
 .card.container > .card-sig,
 .card.container > .card-summary,
 .card.container > .card-body { display: none; }
-.card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
-.card.active { border-color: var(--active); box-shadow: 0 0 0 2px var(--active); }
-.card.dimmed { opacity: 0.18; }
-/* A way into the program. The tool exists for someone asking where to start,
-   so the answer should be on the canvas, not only in a menu. */
-.card.entry { box-shadow: inset 0 0 0 1px var(--entry); }
-.card.entry .card-name::after {
-  content: "entry"; margin-left: 6px; padding: 0 5px;
-  border: 1px solid var(--entry); border-radius: 6px;
-  color: var(--entry); font-size: 9px; text-transform: uppercase;
-}
-.card.orphan .card-name::after {
-  content: "unused"; margin-left: 6px; padding: 0 5px;
-  border: 1px solid var(--orphan); border-radius: 6px;
-  color: var(--orphan); font-size: 9px; text-transform: uppercase;
-}
 
-/* The pin sits absolutely in the corner, so the head has to reserve room for
-   it or the badges run underneath and the counts become unreadable. */
+.card.selected { border-color: var(--amber); }
+.card.selected:not(.container) { box-shadow: var(--lift); }
+.card.active { border-color: var(--active); }
+.card.dimmed { opacity: 0.22; }
+/* A dimmed card is out of the current reading. Letting it still open its
+   source on hover means brushing past anything you just pushed away pops it
+   back over the thing you are actually reading. */
+.card.dimmed .card-pin, .card.dimmed .card-info { display: none; }
+.card.orphan { border-style: dashed; }
+
+/* ---- object head ---- */
+
 .card-head {
-  display: flex; align-items: baseline; gap: 5px;
-  padding: 5px 26px 5px 8px;
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 48px 6px 9px;
 }
-.card-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.container > .card-head { padding: 5px 48px 5px 10px; }
+.card-icon { color: var(--muted); transition: color 0.2s var(--ease); }
+.card:hover .card-icon, .card.selected .card-icon { color: var(--text); }
+.card.container > .card-head .card-icon { color: var(--amber); }
+
+.card-name {
+  font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+/* Plate names take the display voice: this is the constellation label. */
+.card.container > .card-head > .card-name {
+  font: italic 600 19px/1.15 var(--serif); letter-spacing: 0.005em;
+}
+/* Marginal annotation in the chart's own hand: tracked caps, hairline box,
+   no fill. Colour never carries the meaning alone; the word does. */
+.card-flag {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  padding: 1px 5px; border: 1px solid currentColor;
+  font-size: 9px; font-weight: 600; letter-spacing: 0.11em;
+  text-transform: uppercase; white-space: nowrap;
+}
+.card-flag .icon { width: 9px; height: 9px; }
+.card-flag.entry { color: var(--entry); }
+.card-flag.unused { color: var(--orphan); }
+/* Out at block tier the name is the object and an annotation beside it is
+   noise; the dashed edge on an unused object still reads. */
+.card.tier-block .card-flag { display: none; }
+
 .card-sig, .card-summary, .card-path {
   color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 9px;
 }
-.card-badges { margin-left: auto; display: flex; gap: 4px; color: var(--muted); font-size: 10px; }
-.card-pin {
-  position: absolute; top: 3px; right: 3px; padding: 0 4px;
-  background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px;
+.card-sig { font: 11px/1.5 var(--mono); color: var(--text); opacity: 0.72; }
+.card-summary { font-size: 11.5px; padding-top: 1px; }
+.card-path {
+  font: 10px/1.5 var(--mono); color: var(--muted); letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums; padding-bottom: 5px;
 }
-.card-pin:hover, .card.pinned .card-pin { color: var(--active); }
 
-/* Tier is a class on the card. CSS decides what shows; JS only sets the class. */
+/* Counts as instruments: a tracked label over a tabular figure, the way a
+   chart margin reports a measured quantity. */
+.card-badges { margin-left: auto; display: flex; gap: 9px; align-items: baseline; }
+.card-badges .badge { display: flex; align-items: baseline; gap: 3px; }
+.card-badges .badge i {
+  font-style: normal; font-size: 10px; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--muted);
+}
+.card-badges .badge b {
+  font-weight: 550; font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.card.selected .card-badges .badge b, .card:hover .card-badges .badge b { color: var(--text); }
+
+/* Card controls. Both stay out of the way until the card is pointed at or
+   selected: a permanent pair of buttons on every object at once is chrome,
+   and there can be ten thousand objects. */
+.card-pin, .card-info {
+  position: absolute; top: 4px;
+  display: flex; padding: 3px;
+  background: none; border: 0; border-radius: 2px;
+  color: var(--muted); cursor: pointer;
+  opacity: 0; transition: opacity 0.18s var(--ease), color 0.18s var(--ease);
+}
+.card-pin { right: 4px; }
+.card-info { right: 26px; }
+.card:hover .card-pin, .card.selected .card-pin, .card.pinned .card-pin,
+.card:hover .card-info, .card.selected .card-info { opacity: 1; }
+.card-pin:hover, .card-info:hover { color: var(--text); }
+.card-pin:focus-visible, .card-info:focus-visible { opacity: 1; }
+.card.pinned .card-pin { color: var(--amber); opacity: 1; }
+
+/* ---- magnitude ---- */
+/* Fan-in decides how large an object draws, so the load-bearing functions
+   read first from across the room. Size is the hierarchy the type declines
+   to carry, exactly as on a real chart. */
+
+.card[data-mag="0"] .card-icon { width: 19px; height: 19px; color: var(--text); }
+.card[data-mag="1"] .card-icon { width: 16px; height: 16px; color: var(--text); }
+.card[data-mag="2"] .card-icon { width: 13px; height: 13px; }
+.card[data-mag="3"] .card-icon { width: 11px; height: 11px; }
+.card[data-mag="4"] .card-icon { width: 9px;  height: 9px; }
+
+/* Type climbs with the box. A wider frame holding the same 13px name reads
+   as an empty frame, not as a brighter object. */
+.card[data-mag="0"] .card-name { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; }
+.card[data-mag="1"] .card-name { font-size: 16.5px; font-weight: 680; letter-spacing: -0.015em; }
+.card[data-mag="2"] .card-name { font-size: 14.5px; font-weight: 650; }
+.card[data-mag="3"] .card-name { font-size: 13px; color: var(--text); }
+.card[data-mag="4"] .card-name { font-size: 12px; color: var(--muted); }
+
+/* ---- tiers ---- */
+/* Tier is a class on the card. CSS decides what shows; JS only sets it. */
+
 .card.tier-block .card-sig,
 .card.tier-block .card-summary,
+.card.tier-block .card-path,
 .card.tier-block .card-badges,
 .card.tier-block .card-body,
-.card.tier-block .card-pin { display: none; }
-.card.tier-block .card-name { font-size: 15px; }
+.card.tier-block .card-pin,
+.card.tier-block .card-info { display: none; }
+/* Far out, the name is the object. Type behaves as matter, not as labelling.
+   Leaf objects only: a plate that fills in at block tier paints over the very
+   constellation lines crossing it, and block tier is where the shape of the
+   graph is the entire point. */
+.card.tier-block:not(.container) {
+  background: color-mix(in srgb, var(--indigo) 82%, transparent);
+}
+/* Leaf objects centre their name in the box. A plate must not: its label
+   belongs at the top-left corner where a chart writes a region name, and
+   filling the head to the plate's height drops the label into the middle of
+   its own members. */
+.card.tier-block:not(.container) .card-head { padding: 7px 12px; height: 100%; }
+.card.tier-block.container > .card-head { padding: 8px 12px; }
+/* The name is the object out here, so it is set at display size: this is the
+   tier that has to stay legible when the whole graph is on screen. */
+.card.tier-block .card-name { font-size: 23px; font-weight: 700; letter-spacing: -0.02em; }
+.card.tier-block .card-icon { width: 12px; height: 12px; }
+.card.tier-block.container > .card-head > .card-name { font-size: 26px; }
 
 .card.tier-card .card-body { display: none; }
 
-/* Layout reserved a card-tier box, and graph-view sets that height inline.
-   Source tier has to escape it, hence !important: the card grows in place
-   over its neighbours rather than forcing a relayout. */
-/* Source tier means a card MAY show its code, not that it must.
-   Expanding every card the moment the zoom crossed 0.8 buried the graph
-   under a pile of overlapping panels, which is worse than not showing code
-   at all. A card opens when you point at it, select it, or pin it, so only
-   the one you are reading takes the space. */
+/* Source tier means a card MAY show its code, not that it must. Expanding
+   every card the moment the zoom crossed 0.8 buried the graph under a pile
+   of overlapping panels, which is worse than not showing code at all. A card
+   opens when you point at it, select it, or pin it, so only the one you are
+   reading takes the space. */
 .card.tier-source > .card-body { display: none; }
 /* :not(.container) throughout. An expanded container already shows its
    members as child cards, so opening its own source draws the whole class
    body on top of them. */
-.card.tier-source:not(.container):hover > .card-body,
+.card.tier-source:not(.container):not(.dimmed):hover > .card-body,
 .card.tier-source:not(.container).selected > .card-body,
 .card.pinned:not(.container) > .card-body { display: block; }
 
-.card.tier-source:not(.container):hover,
+.card.tier-source:not(.container):not(.dimmed):hover,
 .card.tier-source:not(.container).selected,
 .card.pinned:not(.container) {
   /* Escape the card-sized box layout reserved, in both axes: clipped to it
@@ -185,38 +483,52 @@ html, body {
   height: auto !important;
   min-height: 0;
   width: max-content !important;
-  min-width: 260px;
+  min-width: 264px;
   max-width: 900px;
   z-index: 6;
-  box-shadow: var(--shadow);
+  box-shadow: var(--lift);
+  border-color: var(--faint);
 }
-.card.tier-source:not(.container):hover .card-summary,
+.card.tier-source:not(.container):not(.dimmed):hover .card-summary,
 .card.tier-source:not(.container).selected .card-summary,
 .card.pinned:not(.container) .card-summary { display: none; }
+.card.pinned { border-color: var(--amber); }
 
-/* A pinned card holds source tier at any zoom and floats above its neighbours. */
-.card.pinned { box-shadow: var(--shadow); }
+/* An open card lies over its neighbours, so it gets the chart's own framing
+   device to say where it begins. Resting cards do not: a corner tick on
+   every object at once stops being a mark and becomes texture. */
+.card.tier-source:not(.container):not(.dimmed):hover::before,
+.card.tier-source:not(.container).selected::before,
+.card.pinned:not(.container)::before {
+  content: ""; position: absolute; top: -1px; left: -1px;
+  width: 9px; height: 9px; pointer-events: none;
+  border-top: 1px solid var(--amber); border-left: 1px solid var(--amber);
+}
 
 /* ---- source ---- */
 
 .card-body {
-  margin: 0; padding: 4px 0 6px;
-  border-top: 1px solid var(--line);
-  font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin: 0; padding: 5px 0 7px;
+  border-top: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--night) 55%, transparent);
+  font: 11px/1.55 var(--mono);
   white-space: pre; overflow: auto; max-height: 420px;
   tab-size: 4;
 }
-.src-line { display: flex; min-height: 16px; }
+.src-line { display: flex; min-height: 17px; }
 .src-gutter {
-  flex: none; width: 44px; padding-right: 6px; text-align: right;
+  flex: none; width: 48px; padding-right: 8px; text-align: right;
   color: var(--muted); user-select: none;
+  font-variant-numeric: tabular-nums;
+  display: flex; align-items: center; justify-content: flex-end; gap: 3px;
 }
-.src-gutter .mark { margin-right: 3px; }
-.src-text { flex: 1; padding-right: 8px; }
-.src-line.call-site { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.src-line.call-site .src-text { text-decoration: underline dotted var(--accent); }
-.src-line.step-active { background: color-mix(in srgb, var(--active) 22%, transparent); }
-.card-truncated { padding: 3px 8px; color: var(--muted); font-style: italic; }
+.src-gutter .mark { display: flex; color: var(--glow); }
+.src-gutter .mark .icon { width: 10px; height: 10px; }
+.src-text { flex: 1; padding-right: 10px; }
+.src-line.call-site { background: color-mix(in srgb, var(--amber) 9%, transparent); }
+.src-line.call-site .src-text { text-decoration: underline dotted var(--amber); text-underline-offset: 3px; }
+.src-line.step-active { background: color-mix(in srgb, var(--active) 20%, transparent); }
+.card-truncated { padding: 4px 10px; color: var(--muted); font-style: italic; font-size: 10.5px; }
 
 .kw { color: var(--kw); }
 .str { color: var(--str); }
@@ -225,9 +537,13 @@ html, body {
 .def { color: var(--def); font-weight: 600; }
 .call { color: var(--call); }
 
-/* ---- edges ---- */
+/* ---- constellation lines ---- */
 
-#edges path { fill: none; stroke-width: 1.4; }
+/* Non-scaling stroke for the same reason the coordinate ground is re-ruled
+   rather than transformed: a chart's linework is a constant weight at every
+   scale. Without it a 1.1px line drawn at 48% is half a pixel and the whole
+   constellation disappears exactly when the reader most needs the shape. */
+#edges path { fill: none; stroke-width: 1.1; vector-effect: non-scaling-stroke; }
 /* Arrowheads are <path> elements inside <defs>, so the rule above applies to
    them and leaves them with no fill. They also must not carry bare tier class
    names, or they match the selectors below that style and count real edges.
@@ -236,82 +552,190 @@ html, body {
 #edges marker path.marker-head-inferred { fill: var(--inferred); }
 #edges marker path.marker-head-ambiguous { fill: var(--ambiguous); }
 #edges marker path.marker-head-active { fill: var(--active); }
-#edges path.resolved { stroke: var(--resolved); }
-#edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; }
-#edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 2 4; }
-#edges path.dimmed { opacity: 0.08; }
-#edges path.active { stroke: var(--active); stroke-width: 2.6; }
-#edges .weight { fill: var(--muted); font-size: 10px; }
+#edges path.resolved { stroke: var(--resolved); opacity: 0.85; }
+#edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; opacity: 0.9; }
+#edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 1.5 4; }
+#edges path.dimmed { opacity: 0.07; }
+#edges path.active { stroke: var(--active); stroke-width: 2.2; opacity: 1; }
+/* Figures sit on top of the lines they measure, so they carry the ground
+   colour as a halo rather than a box: a chart annotation interrupts the
+   linework, it does not sit in a chip on top of it. */
+#edges .weight {
+  fill: var(--muted); font: 9.5px var(--sans); font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em; text-anchor: middle;
+  paint-order: stroke; stroke: var(--night); stroke-width: 3.5px; stroke-linejoin: round;
+}
 
-/* ---- panels ---- */
+/* ---- panels: the chart's marginal tables ---- */
 
 #panel, #info-panel {
-  position: absolute; top: 0; right: 0; bottom: 0; width: 330px;
-  padding: 14px; overflow: auto; z-index: 4;
-  background: var(--surface); border-left: 1px solid var(--line);
+  position: absolute; top: 0; right: 0; bottom: 0; width: 340px;
+  padding: 16px 18px; overflow: auto; z-index: 4;
+  background: var(--night); border-left: 1px solid var(--rule);
+  box-shadow: -20px 0 40px -24px rgba(0, 0, 0, 0.8);
+  animation: panel-in 0.32s var(--ease);
 }
+@keyframes panel-in { from { transform: translateX(14px); opacity: 0; } }
 #panel[hidden], #info-panel[hidden] { display: none; }
 .panel-close {
-  position: absolute; top: 8px; right: 10px;
-  width: 24px; height: 24px; padding: 0;
-  background: none; border: 0; border-radius: 6px;
-  color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer;
+  position: absolute; top: 12px; right: 14px;
+  display: flex; padding: 5px;
+  background: none; border: 1px solid transparent; border-radius: 2px;
+  color: var(--muted); cursor: pointer;
+  transition: color 0.18s var(--ease), border-color 0.18s var(--ease);
 }
-.panel-close:hover { background: var(--surface-2); color: var(--text); }
-#panel h2 { margin: 0 0 2px; font-size: 15px; word-break: break-all; }
-#panel .sig, #panel .path { color: var(--muted); font-family: ui-monospace, monospace; font-size: 11px; }
-#panel h3 { margin: 14px 0 5px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+.panel-close:hover { color: var(--text); border-color: var(--rule); }
+#panel h2 {
+  margin: 0 0 2px; font: italic 600 21px/1.2 var(--serif);
+  overflow-wrap: anywhere; padding-right: 26px;
+}
+#panel .qualified {
+  color: var(--muted); font: 10px/1.5 var(--mono);
+  letter-spacing: 0.03em; overflow-wrap: anywhere; margin-bottom: 6px;
+}
+#panel .sig, #panel .path {
+  color: var(--muted); font-family: var(--mono); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+#panel h3, #info-panel h3 {
+  margin: 18px 0 7px; font-size: 10.5px; letter-spacing: 0.13em;
+  text-transform: uppercase; color: var(--muted);
+  border-bottom: 1px solid var(--rule); padding-bottom: 5px;
+  display: flex; align-items: center;
+}
 #panel ul { margin: 0; padding: 0; list-style: none; }
-#panel li a { color: var(--accent); cursor: pointer; text-decoration: none; }
-#panel li a:hover { text-decoration: underline; }
-#panel .actions { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+#panel li { padding: 2px 0; }
+#panel li a {
+  color: var(--text); cursor: pointer; text-decoration: none;
+  border-bottom: 1px solid transparent; transition: border-color 0.16s var(--ease);
+}
+#panel li a:hover { border-bottom-color: var(--amber); }
+#panel .actions { display: flex; gap: 7px; margin-top: 16px; flex-wrap: wrap; }
 /* The editor deep link is an <a> and the rest are <button>. Left unstyled
    they render as a bare browser button beside an underlined blue link, which
    on a dark panel is close to unreadable. */
 #panel .actions button,
 #panel .actions a {
-  padding: 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface-2);
-  color: var(--text);
-  font: inherit;
-  line-height: 1.3;
-  text-decoration: none;
-  cursor: pointer;
+  padding: 5px 10px;
+  border: 1px solid var(--rule); border-radius: 2px;
+  background: var(--indigo); color: var(--text);
+  font: inherit; line-height: 1.3; text-decoration: none; cursor: pointer;
+  transition: border-color 0.18s var(--ease), color 0.18s var(--ease);
 }
 #panel .actions button:hover,
-#panel .actions a:hover { border-color: var(--accent); color: var(--accent); }
+#panel .actions a:hover { border-color: var(--amber); color: var(--amber); }
+
 #info-panel table { width: 100%; border-collapse: collapse; }
-#info-panel td { padding: 2px 0; }
-#info-panel td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+#info-panel td { padding: 3px 0; }
+#info-panel td:last-child {
+  text-align: right; font-variant-numeric: tabular-nums; color: var(--text);
+}
 #info-panel .skipped { color: var(--muted); font-size: 11px; word-break: break-all; }
-#info-panel table.legend td { padding: 3px 0; vertical-align: top; font-size: 11px; }
+#info-panel table.legend td { padding: 4px 0; vertical-align: top; font-size: 11px; }
 #info-panel table.legend td.sample {
-  width: 96px; padding-right: 10px; color: var(--text);
-  font-family: ui-monospace, monospace; white-space: nowrap; text-align: left;
+  width: 96px; padding-right: 12px; color: var(--text);
+  font-family: var(--mono); white-space: nowrap; text-align: left;
 }
 #info-panel table.legend td:last-child { text-align: left; color: var(--muted); }
 
-#breadcrumb, #caption {
-  position: absolute; left: 10px; padding: 5px 10px; border-radius: 7px;
-  background: var(--surface); border: 1px solid var(--line); z-index: 3;
-}
-#breadcrumb { top: 10px; max-width: 60%; }
-#breadcrumb .sep { color: var(--muted); margin: 0 5px; }
-#breadcrumb .current { color: var(--active); font-weight: 650; }
-#caption { bottom: 10px; }
+#breadcrumb, #caption { left: 12px; padding: 6px 11px; }
+#breadcrumb { top: 12px; max-width: 60%; font-size: 12px; }
+#breadcrumb .sep { color: var(--muted); margin: 0 6px; }
+#breadcrumb .current { color: var(--amber); font-weight: 600; }
+#caption { bottom: 12px; left: 50%; transform: translateX(-50%); max-width: 62%; }
 #caption .tag {
-  margin-left: 6px; padding: 0 5px; border-radius: 5px;
-  background: var(--surface-2); color: var(--muted); font-size: 10px;
+  margin-left: 8px; padding: 1px 6px; border: 1px solid var(--rule);
+  color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
 }
 #breadcrumb[hidden], #caption[hidden] { display: none; }
 
+/* ---- lower margin: the survey strip ---- */
+
 #statusbar {
-  padding: 4px 10px; background: var(--surface);
-  border-top: 1px solid var(--line); color: var(--muted); font-size: 11px;
+  padding: 7px 14px; background: var(--night);
+  border-top: 1px solid var(--rule); color: var(--muted);
+  font-size: 11px; letter-spacing: 0.07em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- controls the platform would otherwise draw for us ---- */
+/* A native select keeps its platform arrow and popup, which on a shared
+   screen is the loudest undesigned thing in the toolbar. The arrow is drawn
+   per theme because a data URI cannot read currentColor. */
+
+#toolbar select {
+  appearance: none; -webkit-appearance: none;
+  padding-right: 26px;
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 9px 6px;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='9' height='6'>\
+<path d='M0.6 0.9 4.5 4.8 8.4 0.9' fill='none' stroke='%238794a8' stroke-width='1.3' stroke-linecap='round'/></svg>");
+}
+:root[data-theme="light"] #toolbar select {
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='9' height='6'>\
+<path d='M0.6 0.9 4.5 4.8 8.4 0.9' fill='none' stroke='%2355606f' stroke-width='1.3' stroke-linecap='round'/></svg>");
+}
+
+/* ---- block tier: the object is a disc on the magnitude ramp ---- */
+/* Out here the disc carries the ranking, the way a chart plots a star. A
+   uniform 12px glyph beside a smaller word is not a magnitude ramp. */
+.card.tier-block[data-mag="0"] .card-icon { width: 25px; height: 25px; }
+.card.tier-block[data-mag="1"] .card-icon { width: 20px; height: 20px; }
+.card.tier-block[data-mag="2"] .card-icon { width: 16px; height: 16px; }
+.card.tier-block[data-mag="3"] .card-icon { width: 13px; height: 13px; }
+.card.tier-block[data-mag="4"] .card-icon { width: 10px; height: 10px; }
+
+/* ---- narrow viewports ---- */
+/* Three stacked toolbar rows ate a third of a phone screen. */
+@media (max-width: 760px) {
+  /* Two rows, not three: the search field and the walkthrough picker share
+     the first with the wordmark, and the filters take the second. */
+  #toolbar { gap: 6px 8px; padding: 7px 10px; }
+  #toolbar .brand { font-size: 14px; gap: 5px; padding-right: 0; }
+  .field { flex: 1 1 96px; min-width: 96px; }
+  #toolbar input[type="search"]#search { padding-left: 24px; }
+  .toggles { gap: 10px; }
+  .toggle { font-size: 10px; letter-spacing: 0.04em; gap: 5px; }
+  #entry-select { max-width: 124px; flex: 0 1 124px; }
+  #ticks-left { display: none; }
+  #panel, #info-panel { width: 100%; }
+}
+
+/* ---- motion ---- */
+/* The authored moment is the reticle: the instrument swinging onto the
+   object under the eye. It is the only thing on this chart that moves for
+   its own sake, and only ever one at a time.
+   Objects themselves fade, and nothing else. Animating their transform
+   would be both wrong and expensive: edge anchoring measures a card's real
+   rect to find the line making the call, so a card mid-scale reports a
+   geometry that never existed, and at ten thousand nodes a transform-and-
+   blur entrance is a frame budget nobody agreed to spend. */
+
+@keyframes object-in { from { opacity: 0; } }
+.card { animation: object-in 0.28s var(--ease) both; }
+
+@keyframes reticle-lock {
+  from { transform: scale(1.5); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.card.selected:not(.container)::after {
+  content: ""; position: absolute; inset: -1px; pointer-events: none;
+  border: 1px solid var(--amber);
+  /* The reticle's four ticks, drawn as gradient segments on each edge. */
+  background:
+    linear-gradient(var(--amber), var(--amber)) 50% 0 / 1px 7px no-repeat,
+    linear-gradient(var(--amber), var(--amber)) 50% 100% / 1px 7px no-repeat,
+    linear-gradient(var(--amber), var(--amber)) 0 50% / 7px 1px no-repeat,
+    linear-gradient(var(--amber), var(--amber)) 100% 50% / 7px 1px no-repeat;
+  animation: reticle-lock 0.34s var(--ease) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   #world { transition: none !important; }
+  .card, #panel, #info-panel { animation: none !important; }
+  * { transition-duration: 0.01ms !important; }
 }

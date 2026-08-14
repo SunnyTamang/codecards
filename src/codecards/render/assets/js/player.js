@@ -176,10 +176,25 @@ CC.player = (function () {
 
   function prev() { return goTo(state.index - 1); }
 
+  // The button holds a drawn icon beside its label, so writing textContent
+  // would replace the icon with a bare word. Swap the symbol reference and
+  // the label separately.
+  function setPlayButton(symbolId, label) {
+    const button = document.getElementById('play');
+    const use = button.querySelector('use');
+    if (use) {
+      use.setAttribute('href', '#' + symbolId);
+      use.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', '#' + symbolId);
+    }
+    const text = button.querySelector('.lbl');
+    if (text) text.textContent = label;
+    button.setAttribute('aria-label', label);
+  }
+
   function play() {
     if (!state.steps.length) return;
     state.playing = true;
-    document.getElementById('play').textContent = 'Pause';
+    setPlayButton('i-pause', 'Pause');
     timer = setInterval(function () {
       if (state.index >= state.steps.length - 1) { pause(); return; }
       next();
@@ -188,7 +203,7 @@ CC.player = (function () {
 
   function pause() {
     state.playing = false;
-    document.getElementById('play').textContent = 'Play';
+    setPlayButton('i-play', 'Play');
     if (timer) { clearInterval(timer); timer = null; }
   }
 

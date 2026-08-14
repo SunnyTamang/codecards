@@ -11,10 +11,46 @@ CC.cards = (function () {
   const CARD_W = 260;
   const CARD_H = 64;
 
+  // Magnitude has to be geometry, not ink. Scaling only the glyph and the
+  // name inside an identical box means a function with six callers and one
+  // with a single caller draw the same size, and the chart stops encoding
+  // the thing it claims to. Area carries it, so the ramp reads at any zoom
+  // and from across a room.
+  //
+  // The box is a pure function of fan-in, so it is stable for a given graph
+  // and zoom still never triggers a relayout.
+  // Height hugs the two lines a card actually holds; magnitude is spent on
+  // width, where it buys more of the signature and path before they ellipse,
+  // and on type scale. Growing the box in both axes just claims area: the
+  // brightest object became the emptiest surface, which is the opposite of
+  // what a magnitude ramp says.
+  const BOX = [
+    { w: 344, h: 72 },
+    { w: 306, h: 68 },
+    { w: 268, h: 64 },
+    { w: 236, h: 58 },
+    { w: 210, h: 54 },
+  ];
+
   const KIND_ICON = {
-    package: '▦', module: '▤', class: '◎',
-    function: 'ƒ', method: 'ƒ',
+    package: 'i-package', module: 'i-module', class: 'i-class',
+    function: 'i-function', method: 'i-function',
   };
+
+  // Fan-in as a magnitude, brightest first. Five steps, because a chart that
+  // ranks more finely than the eye resolves is just noise: the point is that
+  // the load-bearing objects read before any label does.
+  const MAGNITUDE_BREAKS = [12, 6, 3, 1];
+
+  function magnitudeFor(fanIn) {
+    const count = fanIn || 0;
+    for (let i = 0; i < MAGNITUDE_BREAKS.length; i++) {
+      if (count >= MAGNITUDE_BREAKS[i]) return i;
+    }
+    return 4;
+  }
+
+  function boxFor(fanIn) { return BOX[magnitudeFor(fanIn)]; }
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);
@@ -23,20 +59,22 @@ CC.cards = (function () {
     return node;
   }
 
-  // Colour by the containing package, so siblings share a hue and
-  // orientation arrives before any label is read.
-  //
-  // Hashing the TOP-LEVEL package instead is useless in the common case:
-  // pointing at one package makes every id share a first segment, and the
-  // whole canvas comes out one colour. Hue comes from a stable hash rather
-  // than iteration order, so colours do not move when the graph changes.
-  function packageHue(key) {
-    const text = String(key || '');
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      hash = (hash * 31 + text.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash) % 360;
+  // Icons are drawn once in the document's symbol sheet and referenced here.
+  // createElementNS is required: an <svg> built with createElement lands in
+  // the HTML namespace and renders as nothing at all.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const XLINK = 'http://www.w3.org/1999/xlink';
+
+  function icon(symbolId, cls) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'icon' + (cls ? ' ' + cls : ''));
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS(SVG_NS, 'use');
+    use.setAttribute('href', '#' + symbolId);
+    // Safari below 14 reads only the xlink form; harmless everywhere else.
+    use.setAttributeNS(XLINK, 'xlink:href', '#' + symbolId);
+    svg.appendChild(use);
+    return svg;
   }
 
   function renderSource(node, callLines) {
@@ -54,8 +92,8 @@ CC.cards = (function () {
       const site = callLines && callLines.get ? callLines.get(fileLine) : null;
       if (site) {
         row.classList.add('call-site');
-        if (site.cond) gutter.appendChild(markGlyph('cond', '⑂', 'inside a conditional'));
-        if (site.loop) gutter.appendChild(markGlyph('loop', '↻', 'inside a loop'));
+        if (site.cond) gutter.appendChild(markGlyph('cond', 'i-branch', 'inside a conditional'));
+        if (site.loop) gutter.appendChild(markGlyph('loop', 'i-loop', 'inside a loop'));
       }
       gutter.appendChild(el('span', 'num', String(fileLine)));
       row.appendChild(gutter);
@@ -71,10 +109,11 @@ CC.cards = (function () {
     return body;
   }
 
-  function markGlyph(kind, glyph, title) {
-    const mark = el('span', 'mark', glyph);
+  function markGlyph(kind, symbolId, title) {
+    const mark = el('span', 'mark');
     mark.dataset.kind = kind;
     mark.title = title;
+    mark.appendChild(icon(symbolId));
     return mark;
   }
 
@@ -100,28 +139,61 @@ CC.cards = (function () {
     const card = el('div', 'card');
     card.dataset.id = node.id;
     card.dataset.kind = node.kind;
-    card.style.setProperty('--pkg',
-      'hsl(' + packageHue(node.parent || node.id) + ' 62% 58%)');
+    card.dataset.mag = String(magnitudeFor(opts.fanIn));
     if (opts.isContainer) card.classList.add('container');
     if (opts.isOrphan) card.classList.add('orphan');
     if (opts.isEntry) card.classList.add('entry');
 
     const head = el('div', 'card-head');
-    head.appendChild(el('span', 'card-icon', KIND_ICON[node.kind] || 'ƒ'));
+    head.appendChild(icon(KIND_ICON[node.kind] || 'i-function', 'card-icon'));
     head.appendChild(el('span', 'card-name', node.name));
+    // Annotations on the object itself. A mark with no word next to it is a
+    // decoration until someone looks it up, and nobody looks it up.
+    if (opts.isEntry) {
+      const flag = el('span', 'card-flag entry');
+      flag.title = 'A way into the program';
+      flag.appendChild(icon('i-entry'));
+      flag.appendChild(el('span', null, 'entry'));
+      head.appendChild(flag);
+    }
+    if (opts.isOrphan) {
+      const flag = el('span', 'card-flag unused', 'unused');
+      flag.title = 'Nothing in this codebase calls it';
+      head.appendChild(flag);
+    }
 
+    // Label over figure, so a count reads as a measured quantity rather than
+    // as decoration. The label is what makes the number mean anything.
     const badges = el('div', 'card-badges');
-    if (opts.fanIn) badges.appendChild(el('span', 'badge-in', '↓' + opts.fanIn));
-    if (opts.fanOut) badges.appendChild(el('span', 'badge-out', '↑' + opts.fanOut));
+    if (opts.fanIn) {
+      badges.appendChild(readout('badge-in', 'in', opts.fanIn, opts.fanIn + ' callers'));
+    }
+    if (opts.fanOut) {
+      badges.appendChild(readout('badge-out', 'out', opts.fanOut, opts.fanOut + ' calls out'));
+    }
     if (opts.internal) {
-      const badge = el('span', 'badge-internal', '↺' + opts.internal);
-      badge.title = opts.internal + ' internal calls';
-      badges.appendChild(badge);
+      badges.appendChild(readout('badge-internal', 'int', opts.internal,
+                                 opts.internal + ' internal calls'));
     }
     head.appendChild(badges);
     card.appendChild(head);
 
-    const pin = el('button', 'card-pin', '◉');
+    // Details are asked for, not pushed. Selecting a card says "show me
+    // around this"; it should not also throw a panel over a third of the
+    // canvas you were reading.
+    const info = el('button', 'card-info');
+    info.appendChild(icon('i-info'));
+    info.setAttribute('aria-label', 'Show details for ' + node.name);
+    info.title = 'Callers, calls and actions for this object';
+    info.addEventListener('click', function (event) {
+      event.stopPropagation();
+      CC.view.select(node.id, { panel: true });
+    });
+    card.appendChild(info);
+
+    const pin = el('button', 'card-pin');
+    pin.appendChild(icon('i-pin'));
+    pin.setAttribute('aria-label', 'Pin this card open');
     pin.title = 'Keep this card showing its source at any zoom';
     pin.addEventListener('click', function (event) {
       event.stopPropagation();
@@ -138,11 +210,21 @@ CC.cards = (function () {
     return card;
   }
 
+  function readout(kindClass, label, value, title) {
+    const holder = el('span', 'badge ' + kindClass);
+    holder.title = title;
+    holder.appendChild(el('i', null, label));
+    holder.appendChild(el('b', null, String(value)));
+    return holder;
+  }
+
   return {
     CARD_W: CARD_W,
     CARD_H: CARD_H,
     build: build,
     renderSource: renderSource,
-    packageHue: packageHue,
+    icon: icon,
+    magnitudeFor: magnitudeFor,
+    boxFor: boxFor,
   };
 })();

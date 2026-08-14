@@ -21,11 +21,31 @@ CC.focus = (function () {
     return { out: out, back: back };
   }
 
-  // Breadth-first to `depth` in both directions. `seen` makes cycles finite.
+  // Everything a node contains, at any depth. Containment is not a call, so a
+  // module owns no call edges: its members do. Selecting `cli` and walking
+  // only its own edges therefore reaches nothing and dims the module's own
+  // functions, which is the one thing selecting a module cannot mean.
+  function subtree(id) {
+    const childIndex = CC.view.state.data.childIndex;
+    const out = new Set([id]);
+    const stack = [id];
+    while (stack.length) {
+      (childIndex[stack.pop()] || []).forEach(function (child) {
+        if (out.has(child)) return;
+        out.add(child);
+        stack.push(child);
+      });
+    }
+    return out;
+  }
+
+  // Breadth-first to `depth` in both directions, seeded with the whole
+  // subtree so "this and what it touches" holds for a plate as well as for a
+  // single function. `seen` makes cycles finite.
   function neighbourhood(id, depth) {
     const links = adjacency();
-    const seen = new Set([id]);
-    let frontier = [id];
+    const seen = subtree(id);
+    let frontier = Array.from(seen);
     for (let step = 0; step < depth; step++) {
       const next = [];
       frontier.forEach(function (node) {
@@ -58,6 +78,13 @@ CC.focus = (function () {
         id, state.data.parentIndex, state.visible, state.collapsed);
       if (visible) lit.add(visible);
     });
+    // The plates you are inside stay lit. A dimmed frame drawn around a lit
+    // region reads as though the region had come loose from its own module.
+    let enclosing = state.data.parentIndex[current];
+    while (enclosing) {
+      lit.add(enclosing);
+      enclosing = state.data.parentIndex[enclosing];
+    }
     cards.forEach(function (card) {
       card.classList.toggle('dimmed', !lit.has(card.dataset.id));
     });

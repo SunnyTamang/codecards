@@ -37,7 +37,8 @@ def test_search_selects_a_matching_node(graph_page):
     graph_page.fill("#search", "load_config")
     graph_page.keyboard.press("Enter")
     graph_page.wait_for_function("CC.view.selected() === 'app.cli.load_config'")
-    assert graph_page.locator("#panel h2").inner_text() == "app.cli.load_config"
+    # Search takes you to a node; it does not decide you also want the panel.
+    assert graph_page.locator("#panel").is_hidden()
 
 
 def test_search_that_matches_nothing_says_so_rather_than_doing_nothing(graph_page):

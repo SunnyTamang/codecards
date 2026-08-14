@@ -17,7 +17,11 @@ CC.panel = (function () {
     ids.forEach(function (id) {
       const item = el('li');
       const link = el('a', null, id);
-      link.addEventListener('click', function () { CC.view.select(id); });
+      // Navigating from inside the panel keeps the panel: the reader is
+      // already in it, so closing it under them would be perverse.
+      link.addEventListener('click', function () {
+        CC.view.select(id, { panel: true });
+      });
       item.appendChild(link);
       list.appendChild(item);
     });
@@ -32,13 +36,20 @@ CC.panel = (function () {
     const host = document.getElementById('panel');
     host.replaceChildren();
 
-    const close = el('button', 'panel-close', '\u00d7');
+    const close = el('button', 'panel-close');
+    close.appendChild(CC.cards.icon('i-close'));
     close.dataset.role = 'close';
     close.title = 'Close (Esc)';
+    close.setAttribute('aria-label', 'Close');
     close.addEventListener('click', function () { CC.view.deselect(); });
     host.appendChild(close);
 
-    host.appendChild(el('h2', null, node.id));
+    // The name is the heading and the qualified id is where it lives. Setting
+    // the whole dotted path as the heading breaks mid-identifier and strands
+    // a letter or two on their own line.
+    host.appendChild(el('h2', null, node.name));
+    const parent = node.id.slice(0, Math.max(0, node.id.length - node.name.length - 1));
+    if (parent) host.appendChild(el('div', 'qualified', parent));
     if (node.signature) host.appendChild(el('div', 'sig', node.name + node.signature));
     if (node.file) {
       host.appendChild(el('div', 'path', node.file + ':' + node.lineStart));
@@ -89,5 +100,7 @@ CC.panel = (function () {
 
   function hide() { document.getElementById('panel').hidden = true; }
 
-  return { show: show, hide: hide };
+  function isOpen() { return !document.getElementById('panel').hidden; }
+
+  return { show: show, hide: hide, isOpen: isOpen };
 })();

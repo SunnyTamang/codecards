@@ -54,11 +54,15 @@ Cards are laid out by call direction: a caller always sits above its callees, so
 vertical position is call depth rather than something you have to read off the
 arrowheads.
 
+Size is fan-in. A callable is drawn larger the more places call it, so the
+functions carrying the program read before you have read a single name. The key
+in the bottom-left corner shows the ramp.
+
 ### Zoom changes what a card shows
 
 | Zoom | You see |
 | --- | --- |
-| Far out | Coloured blocks and names. The architecture, nothing else |
+| Far out | Names at display size, drawn larger the more callers they have. The architecture, nothing else |
 | Middle | Name, signature, docstring line, and fan-in / fan-out counts |
 | Close in | Point at a card and it opens its real source, syntax highlighted, with line numbers |
 
@@ -75,6 +79,12 @@ sometimes, or many times, is most of what understanding a flow means.
 
 Select a card to dim everything outside its neighbourhood, and widen the radius
 to answer "what does this touch, and what would I break by changing it".
+Selecting a module keeps everything inside it lit, since the question is about
+that whole region.
+
+Each card carries an info control that opens a panel listing its callers, its
+calls, and a link into your editor. It stays shut until you ask for it, and
+once open it follows whatever you select next.
 
 Ways into the program carry an `entry` chip: a `__main__` block, a console
 script, or a framework decorator such as a route. Tests and functions that
@@ -99,8 +109,8 @@ Edges are drawn according to how certain the analysis is:
 | Dashed | inferred | An attribute call with no type information, but exactly one function in the codebase has that name |
 | Hidden by default | ambiguous | Several functions share that name, so no single target is trusted. Toggle them on to see the candidates |
 
-The `i` button lists what every style on the canvas means, alongside the
-resolution figures.
+The `i` button in the toolbar lists what every style on the canvas means,
+alongside the resolution figures.
 
 Every run prints its resolution rate. A high rate means the picture is
 trustworthy; a low one means the codebase leans on dynamic dispatch and you

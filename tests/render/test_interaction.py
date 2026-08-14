@@ -23,15 +23,41 @@ def test_expanding_a_module_reroutes_its_edges_to_the_functions(graph_page):
     assert graph_page.locator("#edges path[data-edge='app.cli.main->app.mail']").count() == 1
 
 
-def test_selecting_a_card_opens_the_detail_panel(graph_page):
+def test_selecting_a_card_does_not_open_the_detail_panel(graph_page):
+    """Selecting says "show me around this". Throwing a panel over a third of
+    the canvas is a different request, and it has its own control."""
     graph_page.evaluate("CC.view.toggle('app.cli')")
     graph_page.wait_for_function("CC.view.ready === true")
     graph_page.locator(".card[data-id='app.cli.main'] .card-head").click()
+    assert graph_page.evaluate("CC.view.selected()") == "app.cli.main"
+    assert graph_page.locator("#panel").is_hidden()
+
+
+def test_the_info_control_opens_the_detail_panel(graph_page):
+    graph_page.evaluate("CC.view.toggle('app.cli')")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.locator(".card[data-id='app.cli.main'] .card-info").click()
     panel = graph_page.locator("#panel")
     assert panel.is_visible()
-    assert panel.locator("h2").inner_text() == "app.cli.main"
+    # Identity is the heading plus where it lives, so a long dotted path is
+    # not broken mid-identifier to fit the column.
+    assert panel.locator("h2").inner_text() == "main"
+    assert panel.locator(".qualified").inner_text() == "app.cli"
     assert "(argv=None)" in panel.locator(".sig").inner_text()
     assert "app/cli.py:4" in panel.locator(".path").inner_text()
+
+
+def test_an_open_panel_follows_the_selection(graph_page):
+    graph_page.evaluate("CC.view.toggle('app.cli')")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.locator(".card[data-id='app.cli.main'] .card-info").click()
+    # Selected through the API rather than a click: the card just selected is
+    # at source tier and grows over its neighbours, so a real click would be
+    # testing occlusion, which other tests already cover. The subject here is
+    # that an already-open panel follows wherever the selection goes.
+    graph_page.evaluate("CC.view.select('app.cli.load_config')")
+    assert graph_page.locator("#panel").is_visible()
+    assert graph_page.locator("#panel h2").inner_text() == "load_config"
 
 
 def test_the_panel_lists_callers_and_callees(graph_page):
@@ -54,7 +80,8 @@ def test_a_callee_link_navigates_to_that_node(graph_page):
     graph_page.evaluate("CC.panel.show('app.cli.main')")
     graph_page.locator("#panel [data-role='callees'] li a").first.click()
     graph_page.wait_for_function("CC.view.selected() === 'app.cli.load_config'")
-    assert graph_page.locator("#panel h2").inner_text() == "app.cli.load_config"
+    assert graph_page.locator("#panel h2").inner_text() == "load_config"
+    assert graph_page.locator("#panel .qualified").inner_text() == "app.cli"
 
 
 def test_the_neighbourhood_is_computed_on_the_full_graph(graph_page):
@@ -120,7 +147,7 @@ def test_the_panel_has_a_visible_way_to_close_it(graph_page):
     about it."""
     _click_head(graph_page, "app.cli")
     graph_page.wait_for_function("CC.view.ready === true")
-    _click_head(graph_page, "app.cli.main")
+    graph_page.locator(".card[data-id='app.cli.main'] .card-info").click()
     assert graph_page.locator("#panel").is_visible()
 
     close = graph_page.locator("#panel button[data-role='close']")
@@ -137,7 +164,7 @@ def test_the_panel_has_a_visible_way_to_close_it(graph_page):
 def test_clicking_the_background_clears_the_selection(graph_page):
     _click_head(graph_page, "app.cli")
     graph_page.wait_for_function("CC.view.ready === true")
-    _click_head(graph_page, "app.cli.main")
+    graph_page.locator(".card[data-id='app.cli.main'] .card-info").click()
     assert graph_page.locator("#panel").is_visible()
 
     # Pick a point the layout genuinely leaves empty rather than guessing.
@@ -167,7 +194,7 @@ def test_a_drag_on_the_background_keeps_the_selection(graph_page):
     canvas."""
     _click_head(graph_page, "app.cli")
     graph_page.wait_for_function("CC.view.ready === true")
-    _click_head(graph_page, "app.cli.main")
+    graph_page.locator(".card[data-id='app.cli.main'] .card-info").click()
     selected = graph_page.evaluate("CC.view.selected()")
 
     graph_page.mouse.move(200, 880)

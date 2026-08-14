@@ -7,43 +7,146 @@
 <style>/*__CODECARDS_CSS__*/</style>
 </head>
 <body>
+<!--
+  The canvas is drawn as a star chart rather than as a whiteboard.
+
+  Importance is magnitude: fan-in decides how large an object draws, so the
+  functions carrying the program read before any label does. Calls are
+  constellation lines, and what the analyser could not resolve is left
+  visibly unresolved instead of being filled in with a confident guess.
+
+  Ground is #0a1021, with module plates in deep indigo ruled by hairlines
+  that terminate in a corner tick. Objects are chalk white. Amber is
+  annotation ink only, never decoration, and a red reticle marks the object
+  under the eye. Everything is matte: nothing here emits light.
+
+  System fonts only. An embedded face costs its bytes in every file this
+  tool writes, across every repository anyone points it at, so the display
+  voice is a system serif italic and quantities are set in tabular figures.
+-->
+<svg id="ico" aria-hidden="true" width="0" height="0" style="position:absolute">
+  <defs>
+    <!-- One stroke weight throughout, drawn on a 16px grid. -->
+    <!-- A cluster. The connecting lines read as a scribble at 11px, so the
+         asterism is carried by the dots alone. -->
+    <symbol id="i-package" viewBox="0 0 16 16">
+      <circle cx="4.5" cy="5" r="1.9"/><circle cx="11.5" cy="4.5" r="1.3"/>
+      <circle cx="9.5" cy="11" r="1.7"/><circle cx="3.5" cy="11.5" r="1.1"/>
+    </symbol>
+    <symbol id="i-module" viewBox="0 0 16 16">
+      <rect x="2.5" y="3.5" width="11" height="9" rx="0.5" class="ico-line"/>
+      <path d="M2.5 6.5h11" class="ico-line"/>
+    </symbol>
+    <symbol id="i-class" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="2.4"/>
+      <circle cx="8" cy="8" r="5" class="ico-line"/>
+    </symbol>
+    <symbol id="i-function" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.8"/></symbol>
+    <symbol id="i-entry" viewBox="0 0 16 16">
+      <path d="M8 1.5 9.3 6.7 14.5 8 9.3 9.3 8 14.5 6.7 9.3 1.5 8 6.7 6.7Z"/>
+    </symbol>
+    <symbol id="i-pin" viewBox="0 0 16 16">
+      <path d="M4 2.5h8v11l-4-3-4 3Z" class="ico-line"/>
+    </symbol>
+    <symbol id="i-reticle" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="4.5" class="ico-line"/>
+      <path d="M8 0.5v3M8 12.5v3M0.5 8h3M12.5 8h3" class="ico-line"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 16 16">
+      <circle cx="7" cy="7" r="4.5" class="ico-line"/><path d="M10.4 10.4 14.5 14.5" class="ico-line"/>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="6.2" class="ico-line"/>
+      <path d="M8 7.2v4" class="ico-line"/><circle cx="8" cy="4.9" r="0.85"/>
+    </symbol>
+    <symbol id="i-theme" viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="5.5" class="ico-line"/>
+      <path d="M8 2.5a5.5 5.5 0 0 1 0 11Z"/>
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 16 16"><path d="M4.5 3 13 8l-8.5 5Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 16 16"><path d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 16 16"><path d="M11.5 3 4 8l7.5 5Z"/><path d="M3.5 3h1.2v10H3.5z"/></symbol>
+    <symbol id="i-next" viewBox="0 0 16 16"><path d="M4.5 3 12 8l-7.5 5Z"/><path d="M11.3 3h1.2v10h-1.2z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="0.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8" class="ico-line"/></symbol>
+    <symbol id="i-branch" viewBox="0 0 16 16">
+      <path d="M5 13V7a3 3 0 0 1 3-3h3" class="ico-line"/><path d="M9 2l2.5 2L9 6" class="ico-line"/>
+    </symbol>
+    <symbol id="i-loop" viewBox="0 0 16 16">
+      <path d="M3 8a5 5 0 1 1 1.8 3.8" class="ico-line"/><path d="M2 9.5 4.6 12 7 9.6" class="ico-line"/>
+    </symbol>
+  </defs>
+</svg>
+
 <div id="app">
   <header id="toolbar">
-    <span class="brand">codecards</span>
-    <input id="search" type="search" placeholder="Search functions..." autocomplete="off">
+    <span class="brand"><svg class="icon brand-mark"><use href="#i-entry"/></svg>codecards</span>
+
+    <div class="field">
+      <svg class="icon field-icon"><use href="#i-search"/></svg>
+      <input id="search" type="search" placeholder="Search objects" autocomplete="off">
+    </div>
     <select id="entry-select" aria-label="Entry point"></select>
+
     <div id="transport" hidden>
-      <button id="step-back" title="Previous step (left arrow)">&#9664;</button>
-      <button id="play" title="Play or pause (space)">Play</button>
-      <button id="step-fwd" title="Next step (right arrow)">&#9654;</button>
-      <button id="stop" title="Exit the walkthrough">Stop</button>
+      <button id="step-back" title="Previous step (left arrow)" aria-label="Previous step">
+        <svg class="icon"><use href="#i-prev"/></svg></button>
+      <button id="play" title="Play or pause (space)" aria-label="Play">
+        <svg class="icon"><use href="#i-play"/></svg><span class="lbl">Play</span></button>
+      <button id="step-fwd" title="Next step (right arrow)" aria-label="Next step">
+        <svg class="icon"><use href="#i-next"/></svg></button>
+      <button id="stop" title="Exit the walkthrough" aria-label="Stop">
+        <svg class="icon"><use href="#i-stop"/></svg></button>
       <select id="speed" aria-label="Playback speed">
         <option value="1600">Slow</option>
         <option value="900" selected>Normal</option>
         <option value="400">Fast</option>
       </select>
     </div>
-    <label class="toggle"><input type="checkbox" id="show-inferred" checked> Inferred</label>
-    <label class="toggle"><input type="checkbox" id="show-ambiguous"> Ambiguous</label>
-    <label class="toggle" title="Show __init__, __eq__ and other special methods">
-      <input type="checkbox" id="show-dunders"> Dunders</label>
-    <label class="toggle" id="focus-control" hidden>
+
+    <div class="toggles">
+      <label class="toggle"><input type="checkbox" id="show-inferred" checked>Inferred</label>
+      <label class="toggle"><input type="checkbox" id="show-ambiguous">Ambiguous</label>
+      <label class="toggle" title="Show __init__, __eq__ and other special methods">
+        <input type="checkbox" id="show-dunders">Dunders</label>
+    </div>
+
+    <label class="toggle range" id="focus-control" hidden>
       Focus <input type="range" id="focus-hops" min="1" max="5" value="1">
       <span id="focus-hops-value">1</span>
     </label>
-    <button id="info" title="What this graph does and does not know">&#9432;</button>
-    <button id="theme" title="Toggle light and dark">&#9681;</button>
+
+    <button id="info" class="icon-btn" title="What this graph does and does not know"
+            aria-label="About this survey"><svg class="icon"><use href="#i-info"/></svg></button>
+    <button id="theme" class="icon-btn" title="Toggle light and dark"
+            aria-label="Toggle theme"><svg class="icon"><use href="#i-theme"/></svg></button>
   </header>
 
   <main id="stage">
     <!-- The viewport clips; #world is transformed; cards and the edge layer
-         live inside #world and therefore share one coordinate system. -->
+         live inside #world and therefore share one coordinate system.
+         #field is the ruled coordinate ground: it never scales, it re-rules
+         itself from the current transform, so hairlines stay hairlines. -->
     <div id="viewport">
+      <div id="field" aria-hidden="true"></div>
+      <!-- Coordinate values ruled into the margins, the way a chart plate
+           carries its own scale. Written in place by canvas.js. -->
+      <div id="ticks-top" aria-hidden="true"></div>
+      <div id="ticks-left" aria-hidden="true"></div>
       <div id="world">
         <svg id="edges" aria-hidden="true"></svg>
         <div id="cards"></div>
       </div>
     </div>
+
+    <div id="mag-key" aria-hidden="true">
+      <span class="mag-key-title">Magnitude</span>
+      <span class="mag-key-ramp">
+        <i class="m0"></i><i class="m1"></i><i class="m2"></i><i class="m3"></i><i class="m4"></i>
+      </span>
+      <span class="mag-key-foot">callers</span>
+    </div>
+
     <div id="zoom-readout" aria-live="off"></div>
     <div id="breadcrumb" hidden></div>
     <div id="caption" hidden></div>

@@ -11,10 +11,47 @@ def tier_of(page, node_id):
     return None
 
 
+def _show_card(page, node_id):
+    """Put a card's top-left near the viewport origin at 1:1.
+
+    Pinning it to a fixed camera instead assumes where the layout puts that
+    node, which is not the test's subject: fan-in drives box size, so any
+    change to the magnitude ramp moves every coordinate and a card that used
+    to sit under the camera slides off screen.
+    """
+    page.evaluate(
+        """(id) => {
+            const box = CC.view.boxes()[id];
+            CC.canvas.setView({x: 60 - box.x, y: 60 - box.y, scale: 1.0});
+        }""",
+        node_id,
+    )
+    page.wait_for_timeout(80)
+
+
+def _hovered_pin(page, node_id):
+    """The pin, measured the way a user meets it: after pointing at the card.
+
+    The pin is invisible until the card is hovered, and hovering a card at
+    source tier opens it, which widens it past its own box and carries the
+    corner the pin sits in. Measuring before that hover returns a position
+    the pin never occupies while anyone can see it.
+    """
+    page.locator(f".card[data-id='{node_id}'] .card-head").hover()
+    page.wait_for_timeout(60)
+    return page.locator(f".card[data-id='{node_id}'] .card-pin")
+
+
 def test_the_thresholds_are_the_documented_ones(graph_page):
+    """The block boundary sits where card detail stops being readable.
+
+    Card tier spends four lines of type on a card, the smallest 10px. Below
+    about 0.6 all four render under 7px, so the card says nothing that a
+    single name at display size would not say more clearly.
+    """
     assert graph_page.evaluate("CC.zoom.tierFor(0.2)") == "block"
-    assert graph_page.evaluate("CC.zoom.tierFor(0.34)") == "block"
-    assert graph_page.evaluate("CC.zoom.tierFor(0.35)") == "card"
+    assert graph_page.evaluate("CC.zoom.tierFor(0.59)") == "block"
+    assert graph_page.evaluate("CC.zoom.tierFor(0.6)") == "card"
     assert graph_page.evaluate("CC.zoom.tierFor(0.79)") == "card"
     assert graph_page.evaluate("CC.zoom.tierFor(0.8)") == "source"
     assert graph_page.evaluate("CC.zoom.tierFor(2.5)") == "source"
@@ -80,9 +117,8 @@ def test_the_pin_button_toggles_the_pin(graph_page):
     """Driven with a real mouse on purpose. The canvas captures the pointer to
     pan, and capture retargets the following click to the viewport, so a
     scripted element.click() passed while no user could ever pin a card."""
-    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
-    graph_page.wait_for_timeout(80)
-    pin = graph_page.locator(".card[data-id='app.cli'] .card-pin")
+    _show_card(graph_page, "app.cli")
+    pin = _hovered_pin(graph_page, "app.cli")
     box = pin.bounding_box()
     graph_page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     assert graph_page.evaluate("CC.zoom.isPinned('app.cli')") is True
@@ -92,10 +128,9 @@ def test_the_pin_button_toggles_the_pin(graph_page):
 
 
 def test_clicking_a_card_control_does_not_pan_the_canvas(graph_page):
-    graph_page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 1.0})")
-    graph_page.wait_for_timeout(80)
+    _show_card(graph_page, "app.cli")
+    box = _hovered_pin(graph_page, "app.cli").bounding_box()
     before = graph_page.evaluate("CC.canvas.getView()")
-    box = graph_page.locator(".card[data-id='app.cli'] .card-pin").bounding_box()
     graph_page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
     graph_page.mouse.down()
     graph_page.mouse.move(box["x"] + 60, box["y"] + 40)

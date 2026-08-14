@@ -49,15 +49,25 @@ CC.view = (function () {
   function toggle(id) {
     const next = new Set(state.collapsed);
     if (next.has(id)) next.delete(id); else next.add(id);
-    return layout(next);
+    // Expanding means "show me inside this", so the camera goes to the thing
+    // that was opened. Refitting the whole graph instead answers a question
+    // nobody asked and, on a wide graph, answers it at a scale where nothing
+    // is readable: opening one package in this project's own graph dropped
+    // the view to 39%, which is small enough to render every card's detail
+    // illegible while still being too large for the block tier to help.
+    return layout(next, { focusOn: next.has(id) ? null : id });
   }
 
-  function select(id) {
+  // The panel is a mode the reader opts into, via a card's info control.
+  // Once it is open it follows the selection, so walking the graph with it
+  // open keeps working; while it is closed, selecting stays a canvas action
+  // and never covers the thing being read.
+  function select(id, options) {
     selectedId = id;
     mounted.forEach(function (card, cardId) {
       card.classList.toggle('selected', cardId === id);
     });
-    CC.panel.show(id);
+    if ((options && options.panel) || CC.panel.isOpen()) CC.panel.show(id);
     CC.focus.set(id);
     // Selecting opens the card, which moves where its edges leave from.
     paint();
@@ -124,6 +134,11 @@ CC.view = (function () {
   }
 
   function buildElkTree(collapsed, visible) {
+    // state.edges is already aggregated for this view by the time layout runs,
+    // so fan-in is known before ELK is asked for coordinates and magnitude can
+    // decide the box rather than only what is drawn inside it.
+    const counts = fanCounts();
+
     function toElk(id) {
       const kids = collapsed.has(id) ? [] : childrenOf(id).filter(function (c) {
         return visible.has(c);
@@ -136,8 +151,9 @@ CC.view = (function () {
                          ',bottom=' + PAD + ',right=' + PAD + ']',
         };
       } else {
-        node.width = CC.cards.CARD_W;
-        node.height = CC.cards.CARD_H;
+        const box = CC.cards.boxFor(counts.inCount[id] || 0);
+        node.width = box.w;
+        node.height = box.h;
       }
       return node;
     }
@@ -206,6 +222,23 @@ CC.view = (function () {
     return { inCount: inCount, outCount: outCount };
   }
 
+  // Centre of the most-called visible object: where a reader should land when
+  // the whole graph cannot fit at a readable scale.
+  function brightestPoint() {
+    const counts = fanCounts();
+    let best = null;
+    let bestCount = -1;
+    Object.keys(state.boxes).forEach(function (id) {
+      const count = counts.inCount[id] || 0;
+      if (count > bestCount) {
+        bestCount = count;
+        best = state.boxes[id];
+      }
+    });
+    if (!best) return null;
+    return { x: best.x + best.w / 2, y: best.y + best.h / 2 };
+  }
+
   function paint() {
     if (!state.data) return;
     const rect = CC.canvas.visibleWorldRect(CULL_MARGIN);
@@ -234,7 +267,11 @@ CC.view = (function () {
       card.style.left = box.x + 'px';
       card.style.top = box.y + 'px';
       card.style.width = box.w + 'px';
-      if (!isContainer) card.style.height = box.h + 'px';
+      // Containers take their full box too, so a module reads as the region
+      // its members sit inside rather than as a label bar floating above
+      // them. Children are separately positioned siblings painted after the
+      // container, so they sit on top of its transparent ground.
+      card.style.height = box.h + 'px';
       cardLayer.appendChild(card);
       mounted.set(id, card);
 
@@ -322,8 +359,12 @@ CC.view = (function () {
       }, { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
       const refit = !(options && options.refit === false);
       if (refit && extent.x !== Infinity) {
-        CC.canvas.fit({ x: extent.x, y: extent.y,
-                        w: extent.right - extent.x, h: extent.bottom - extent.y }, 40);
+        const focus = options && options.focusOn && state.boxes[options.focusOn];
+        CC.canvas.fit(focus
+          ? { x: focus.x, y: focus.y, w: focus.w, h: focus.h }
+          : { x: extent.x, y: extent.y,
+              w: extent.right - extent.x, h: extent.bottom - extent.y },
+          40, { anchor: brightestPoint() });
       }
       paint();
       CC.view.ready = true;

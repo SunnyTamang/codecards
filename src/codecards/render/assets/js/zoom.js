@@ -7,7 +7,12 @@
 window.CC = window.CC || {};
 
 CC.zoom = (function () {
-  const THRESHOLDS = { block: 0.35, source: 0.8 };
+  // Card tier costs four lines of type: name, signature, docstring, path. The
+  // path is 10px, so below roughly 0.6 every one of them is under 7px and the
+  // card reads as a smudge. Block tier answers the same zoom with one name at
+  // display size, which is legible far further out, so the boundary sits where
+  // detail stops being readable rather than where it stops fitting.
+  const THRESHOLDS = { block: 0.6, source: 0.8 };
   const pinned = new Set();
 
   function tierFor(scale) {
