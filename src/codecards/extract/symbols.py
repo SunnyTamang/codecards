@@ -96,6 +96,32 @@ class SymbolTable:
         return None
 
 
+def naming_root_for(path: Path, fallback: Path) -> Path:
+    """Where Python itself would measure this module's name from.
+
+    When the file sits in a real package, its importable name is its path
+    relative to the first ancestor that is not one. In a src layout,
+    `src/comp_graph/graph.py` imports as `comp_graph.graph`: `src` holds no
+    `__init__.py`, so it goes on the path rather than into the name.
+
+    Naming it from the directory the user pointed at instead produced
+    `src.comp_graph.graph`, which no import statement in the project could
+    ever match, so every call into the project's own package resolved to
+    nothing at all.
+
+    When the file's own directory is not a package, there is nothing to
+    measure from and the analysis root is the only honest answer: that is a
+    namespace package, and `app/sub/deep.py` is importable as `app.sub.deep`
+    with no `__init__.py` anywhere.
+    """
+    base = path.resolve().parent
+    if not (base / "__init__.py").is_file():
+        return Path(fallback).resolve()
+    while (base / "__init__.py").is_file() and base.parent != base:
+        base = base.parent
+    return base
+
+
 def module_id_for(path: Path, root: Path) -> str:
     rel = path.resolve().relative_to(Path(root).resolve())
     parts = list(rel.parts)
@@ -176,7 +202,10 @@ def build_symbol_table(
             skipped.append(SkippedFile(str(path), "too deeply nested to parse"))
             continue
 
-        module_id = module_id_for(path, root)
+        # Two different roots on purpose: the name is measured the way Python
+        # measures it, and the path shown on the card stays relative to what
+        # the user pointed at, so it matches what they would type to open it.
+        module_id = module_id_for(path, naming_root_for(path, root))
         rel_path = path.resolve().relative_to(Path(root).resolve()).as_posix()
         info = ModuleInfo(module_id=module_id, path=path, rel_path=rel_path, source=source)
         is_package = path.name == "__init__.py"

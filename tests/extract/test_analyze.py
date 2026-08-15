@@ -354,3 +354,39 @@ def test_a_decorator_in_a_test_file_is_not_an_entry_point(tmp_path):
                  if h.reason is EntryReason.DECORATED}
     assert "tests.test_thing.test_it" not in decorated
     assert "app.run" in decorated, "a real framework decorator must still count"
+
+
+# -- a src layout names its modules the way Python imports them -------------
+#
+# Names were measured from the directory the user pointed at, so pointing at
+# the repository root of a src-layout project named every module `src.pkg.x`.
+# The code imports `pkg.x`, those two strings never matched, and every call
+# into the project's own package resolved to nothing. On a 46-file project
+# that suppressed about a hundred real edges and left its entry point looking
+# like a leaf.
+
+
+def test_a_src_layout_resolves_calls_into_its_own_package(tmp_path):
+    root = project(tmp_path, {
+        "pyproject.toml": "[project]\nname = 'thing'\n",
+        "src/thing/__init__.py": "",
+        "src/thing/core.py": "def work():\n    pass\n",
+        "run.py": "from thing.core import work\n\ndef main():\n    work()\n",
+    })
+    graph, _ = analyze([root])
+    validate(graph)
+
+    assert "thing.core.work" in graph.nodes, sorted(graph.nodes)[:8]
+    assert "src.thing.core.work" not in graph.nodes
+    assert ("run.main", "thing.core.work") in {(e.source, e.target) for e in graph.edges}
+
+
+def test_a_src_layout_still_shows_the_path_the_user_would_open(tmp_path):
+    """Only the name is measured from the package root. The path on the card
+    stays relative to what was analysed, or it would not match the repo."""
+    root = project(tmp_path, {
+        "src/thing/__init__.py": "",
+        "src/thing/core.py": "def work():\n    pass\n",
+    })
+    graph, _ = analyze([root])
+    assert graph.nodes["thing.core.work"].location.file == "src/thing/core.py"
