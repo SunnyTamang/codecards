@@ -5,6 +5,7 @@ of numbers this needs is enough to read an index without generated bindings or
 a protobuf dependency. The schema is stable and small where it matters:
 
     Index      { metadata = 1, documents = 2, external_symbols = 3 }
+    Metadata   { version = 1, tool_info = 2, project_root = 3 }
     Document   { relative_path = 1, occurrences = 2, symbols = 3, language = 4 }
     Occurrence { range = 1, symbol = 2, symbol_roles = 3 }
 
@@ -40,6 +41,15 @@ class Occurrence:
 class Document:
     path: str
     occurrences: tuple[Occurrence, ...]
+
+
+@dataclass(frozen=True)
+class Index:
+    #: The directory the indexer was run against, as a file:// URI. Every
+    #: document path is relative to it, so it is the only thing that says
+    #: which project an index belongs to.
+    project_root: str
+    documents: tuple[Document, ...]
 
 
 def _varint(buf: bytes, i: int) -> tuple[int, int]:
@@ -85,11 +95,17 @@ def _packed(buf: bytes) -> list[int]:
     return out
 
 
-def read(path: Path) -> list[Document]:
+def read(path: Path) -> Index:
     raw = Path(path).read_bytes()
     documents: list[Document] = []
+    project_root = ""
 
     for number, _wire, payload in _fields(raw):
+        if number == 1 and isinstance(payload, bytes):
+            for mn, mwire, mpayload in _fields(payload):
+                if mn == 3 and mwire == 2:
+                    project_root = mpayload.decode("utf-8", "replace")
+            continue
         if number != 2 or not isinstance(payload, bytes):
             continue
         doc_path = ""
@@ -123,10 +139,10 @@ def read(path: Path) -> list[Document]:
 
         documents.append(Document(path=doc_path, occurrences=tuple(occurrences)))
 
-    return documents
+    return Index(project_root=project_root, documents=tuple(documents))
 
 
-def is_empty(documents: list[Document]) -> bool:
+def is_empty(documents) -> bool:
     """An indexer that could not load the project writes a valid, empty index.
 
     It exits successfully and warns on stderr, so a caller that trusts the

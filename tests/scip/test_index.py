@@ -7,6 +7,8 @@ field numbers ever stop holding.
 
 from __future__ import annotations
 
+import pytest
+
 from codecards.scip import index as scip
 
 
@@ -52,7 +54,7 @@ def test_an_index_round_trips_through_the_reader(tmp_path):
     path = tmp_path / "index.scip"
     path.write_bytes(raw)
 
-    docs = scip.read(path)
+    docs = scip.read(path).documents
     assert len(docs) == 1
     assert docs[0].path == "src/pkg/mod.py"
 
@@ -68,16 +70,16 @@ def test_an_empty_index_is_detected(tmp_path):
     repository as having no code in it."""
     path = tmp_path / "empty.scip"
     path.write_bytes(document("src/pkg/mod.py"))
-    assert scip.is_empty(scip.read(path)) is True
+    assert scip.is_empty(scip.read(path).documents) is True
 
     path.write_bytes(document("src/pkg/mod.py", occurrence(1, 0, 3, SYMBOL)))
-    assert scip.is_empty(scip.read(path)) is False
+    assert scip.is_empty(scip.read(path).documents) is False
 
 
 def test_locals_are_recognised_as_meaningless_outside_their_file(tmp_path):
     path = tmp_path / "index.scip"
     path.write_bytes(document("m.py", occurrence(1, 0, 3, "local 4")))
-    assert scip.read(path)[0].occurrences[0].is_local is True
+    assert scip.read(path).documents[0].occurrences[0].is_local is True
 
 
 def test_a_symbol_splits_into_its_package_and_descriptors():
@@ -106,3 +108,36 @@ def test_a_stdlib_symbol_reports_itself_as_external():
 def test_a_local_symbol_has_nothing_to_parse():
     assert scip.parse("local 12") is None
     assert scip.parse("") is None
+
+
+def metadata(project_root: str) -> bytes:
+    return delimited(1, delimited(3, project_root.encode()))
+
+
+def test_the_directory_the_index_was_built_for_is_recorded(tmp_path):
+    """It is the only thing in the file that says which project this is."""
+    path = tmp_path / "index.scip"
+    path.write_bytes(metadata("file:///home/me/thing")
+                     + document("src/thing/core.py", occurrence(1, 0, 3, SYMBOL)))
+    index = scip.read(path)
+    assert index.project_root == "file:///home/me/thing"
+    assert len(index.documents) == 1
+
+
+def test_an_index_read_from_the_wrong_directory_says_so(tmp_path):
+    """Every path in an index is relative to the root it was built from, so
+    reading it anywhere else resolves nothing. Reporting that as "no Python
+    files found" reads as an empty directory rather than a mismatched pair."""
+    from codecards.scip import IndexUnusable, analyze
+
+    path = tmp_path / "index.scip"
+    path.write_bytes(metadata("file:///somewhere/else")
+                     + document("src/thing/core.py", occurrence(1, 0, 3, SYMBOL)))
+
+    elsewhere = tmp_path / "a-different-project"
+    elsewhere.mkdir()
+    with pytest.raises(IndexUnusable) as caught:
+        analyze([elsewhere], path)
+    message = str(caught.value)
+    assert "/somewhere/else" in message
+    assert str(elsewhere) in message

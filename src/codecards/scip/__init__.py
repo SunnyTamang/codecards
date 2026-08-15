@@ -70,13 +70,15 @@ def analyze(
     embed_source: bool = True,
 ) -> tuple[CodeGraph, AnalysisReport]:
     root = Path(roots[0]).resolve()
-    documents = scip.read(Path(index_path))
+    index = scip.read(Path(index_path))
+    documents = list(index.documents)
     if scip.is_empty(documents):
         raise IndexUnusable(
             f"{index_path} contains no occurrences. An indexer that cannot load "
             "the project writes a valid but empty index and exits successfully; "
             "check that its dependencies are installed."
         )
+    _check_root_matches(index, root, index_path)
 
     nodes: dict[str, Node] = {}
     parents: dict[str, str | None] = {}
@@ -259,6 +261,26 @@ def analyze(
         edge_count=len(edges),
     )
     return CodeGraph(nodes=nodes, edges=edges, entry_hints=hints), report
+
+
+def _check_root_matches(index: scip.Index, root: Path, index_path: Path) -> None:
+    """An index is tied to the directory it was built against.
+
+    Every path in it is relative to that root, so pointing at anything else
+    resolves none of them. Without this the run ends at "no Python files
+    found", which reads as an empty directory rather than a mismatched pair.
+    """
+    present = sum(1 for doc in index.documents if (root / doc.path).exists())
+    if present:
+        return
+    built_for = index.project_root.removeprefix("file://") or "an unknown directory"
+    raise IndexUnusable(
+        f"{index_path} was built for {built_for}, and none of its "
+        f"{len(index.documents)} files are under {root}. An index records "
+        "paths relative to the directory it was indexed from, so it has to be "
+        "read from that same directory. Re-index this project, or point "
+        "codecards at the one the index covers."
+    )
 
 
 def _looks_like_a_test_file(path: str) -> bool:
