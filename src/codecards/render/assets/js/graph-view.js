@@ -450,6 +450,10 @@ CC.view = (function () {
       // them. Children are separately positioned siblings painted after the
       // container, so they sit on top of its transparent ground.
       card.style.height = box.h + 'px';
+      // Block tier draws the name at display size; how large it can actually
+      // be depends on the box this node ended up with.
+      card.style.setProperty('--block-name', CC.cards.blockNamePx(
+        node.name, box.w, Number(card.dataset.mag), isContainer) + 'px');
       cardLayer.appendChild(card);
       mounted.set(id, card);
 

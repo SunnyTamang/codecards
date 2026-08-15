@@ -456,9 +456,13 @@ html, body {
 .card.tier-block.container > .card-head { padding: 8px 12px; }
 /* The name is the object out here, so it is set at display size: this is the
    tier that has to stay legible when the whole graph is on screen. */
-.card.tier-block .card-name { font-size: 23px; font-weight: 700; letter-spacing: -0.02em; }
+.card.tier-block .card-name {
+  font-size: var(--block-name, 23px); font-weight: 700; letter-spacing: -0.02em;
+}
 .card.tier-block .card-icon { width: 12px; height: 12px; }
-.card.tier-block.container > .card-head > .card-name { font-size: 26px; }
+.card.tier-block.container > .card-head > .card-name {
+  font-size: calc(var(--block-name, 23px) * 1.13);
+}
 
 .card.tier-card .card-body { display: none; }
 

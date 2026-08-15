@@ -114,6 +114,23 @@ CC.cards = (function () {
     return total;
   }
 
+  // Block tier sets the name at display size, far larger than the size the
+  // box was measured for. A box wide enough for "select_employee_signals" at
+  // 14.5px cannot hold it at 23px, so the one thing that tier exists to show
+  // is the thing that gets cut. Rather than widening every box for a tier
+  // that hides everything else, the name takes the largest size that fits.
+  const BLOCK_MAX = 23;
+  const BLOCK_MIN = 11;
+
+  function blockNamePx(name, boxWidth, mag, isContainer) {
+    const chrome = (isContainer ? 24 : 24) + (ICON_PX[mag] || 12) + GAP + 4;
+    const room = Math.max(0, boxWidth - chrome);
+    for (let px = BLOCK_MAX; px > BLOCK_MIN; px -= 0.5) {
+      if (textWidth(name || '', px, 700) <= room) return px;
+    }
+    return BLOCK_MIN;
+  }
+
   function boxFor(fanIn, name, counts, flags) {
     const mag = magnitudeFor(fanIn);
     const base = BOX[mag];
@@ -297,5 +314,6 @@ CC.cards = (function () {
     magnitudeFor: magnitudeFor,
     minPlateWidth: minPlateWidth,
     boxFor: boxFor,
+    blockNamePx: blockNamePx,
   };
 })();

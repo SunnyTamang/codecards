@@ -305,3 +305,41 @@ def test_a_card_is_always_wide_enough_for_its_own_name(tmp_path, page, sample_vi
         return bad;
     }""")
     assert clipped == []
+
+
+def test_a_name_fits_at_the_far_tier_too(tmp_path, page, sample_viewmodel):
+    """Block tier sets the name at display size, several points larger than
+    the size the box was measured for, so a box wide enough at card tier cut
+    the same name at block tier. That is the one tier whose entire content is
+    the name."""
+    from codecards.render.bundle import render_html
+
+    vm = sample_viewmodel
+    long_name = "test_not_defensible_routes_to_fallback_even_with_signal"
+    vm["nodes"].append({
+        "id": f"app.mail.{long_name}", "kind": "function", "name": long_name,
+        "parent": "app.mail", "file": "app/mail.py", "lineStart": 40,
+        "lineEnd": 41, "signature": "()", "summary": None, "decorators": [],
+        "implicit": False, "dunder": False,
+    })
+
+    out = tmp_path / "block.html"
+    out.write_text(render_html(vm), encoding="utf-8")
+    page.goto(out.as_uri())
+    page.wait_for_function("CC.view.ready === true")
+    page.evaluate("CC.view.layout(new Set())")
+    page.wait_for_function("CC.view.ready === true")
+    # Below 0.6 is block tier, where the name is the whole card.
+    page.evaluate("CC.canvas.setView({x: 0, y: 0, scale: 0.5})")
+    page.wait_for_timeout(250)
+
+    clipped = page.evaluate("""() => {
+        const bad = [];
+        document.querySelectorAll('#cards .card').forEach((c) => {
+            if (!c.classList.contains('tier-block')) return;
+            const n = c.querySelector('.card-name');
+            if (n && n.scrollWidth > n.clientWidth + 1) bad.push(n.textContent);
+        });
+        return bad;
+    }""")
+    assert clipped == []
