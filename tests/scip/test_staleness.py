@@ -37,12 +37,12 @@ def project(tmp_path, *, index_older: bool, tool: str | None = "scip-python"):
 
 def test_a_source_newer_than_the_index_is_reported(tmp_path):
     index = project(tmp_path, index_older=True)
-    assert stale_sources([tmp_path], index) == ["run.py"]
+    assert stale_sources(tmp_path, index, ["run.py"]) == ["run.py"]
 
 
 def test_an_index_newer_than_its_sources_is_current(tmp_path):
     index = project(tmp_path, index_older=False)
-    assert stale_sources([tmp_path], index) == []
+    assert stale_sources(tmp_path, index, ["run.py"]) == []
 
 
 def test_a_stale_index_still_produces_a_graph(tmp_path):
@@ -97,3 +97,21 @@ def test_an_indexer_we_have_not_verified_gets_no_invented_command(tmp_path):
 
     assert reindex_command(tmp_path / "i.scip", tmp_path, "scip-elixir") is None
     assert reindex_command(tmp_path / "i.scip", tmp_path, None) is None
+
+
+def test_only_the_files_the_index_describes_are_examined(tmp_path):
+    """Walking the tree for *.py finds the virtualenv. On a 46-file project
+    that reported 3,447 stale files, nearly all of them site-packages the
+    graph never drew, which buries the handful that matter and the
+    instruction under them."""
+    index = project(tmp_path, index_older=True)
+    vendored = tmp_path / ".venv" / "lib" / "site-packages" / "thing"
+    vendored.mkdir(parents=True)
+    (vendored / "mod.py").write_text("def f():\n    pass\n")
+
+    # The index describes run.py and nothing else, so that is all it can be
+    # out of date with respect to.
+    assert stale_sources(tmp_path, index, ["run.py"]) == ["run.py"]
+
+    _, report = analyze(roots=[tmp_path], index_path=index, embed_source=False)
+    assert report.stale == ["run.py"]

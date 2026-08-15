@@ -15,6 +15,7 @@ the index is only as good as the environment it was built in.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 
@@ -65,8 +66,13 @@ def _qualname(symbol: str) -> str | None:
     return ".".join(part for part in keep if part) or None
 
 
-def stale_sources(roots: list[Path], index_path: Path) -> list[str]:
-    """Source files modified after the index was written.
+def stale_sources(root: Path, index_path: Path, documents: Iterable[str]) -> list[str]:
+    """Files the index says it describes, modified after it was written.
+
+    Asks the index which files it covers rather than walking the tree for
+    *.py. A walk finds the virtualenv: on a 46-file project it reported 3,447
+    stale files, all but a handful of them site-packages the graph never drew.
+    The index's own document list is exactly the set the graph was built from.
 
     An index has no notion of when it was built and no checksum of what it
     read, so the file's own mtime is the only thing available. That makes this
@@ -75,20 +81,22 @@ def stale_sources(roots: list[Path], index_path: Path) -> list[str]:
     timestamp, or cry wolf after a checkout that rewrites mtimes without
     changing content. Both failures are acceptable in a warning that never
     blocks; neither would be in anything that did.
+
+    A file created since the index was written is invisible here, because the
+    index has no document for it. That is a different kind of staleness - a
+    missing card rather than a wrong one - and this does not claim to catch it.
     """
     try:
         built = index_path.stat().st_mtime
     except OSError:
         return []
     newer: list[str] = []
-    for root in roots:
-        base = Path(root)
-        for path in sorted(base.rglob("*.py")):
-            try:
-                if path.stat().st_mtime > built:
-                    newer.append(path.relative_to(base).as_posix())
-            except OSError:  # vanished mid-walk; nothing to say about it
-                continue
+    for relative in sorted(set(documents)):
+        try:
+            if (root / relative).stat().st_mtime > built:
+                newer.append(relative)
+        except OSError:  # listed in the index but not on disk now
+            continue
     return newer
 
 
@@ -313,7 +321,7 @@ def analyze(
         for (s, t), sites in sorted(merged.items())
     ]
 
-    stale = stale_sources(list(roots), Path(index_path))
+    stale = stale_sources(root, Path(index_path), (d.path for d in documents))
     report = AnalysisReport(
         total_calls=sum(by_confidence.values()),
         by_confidence=by_confidence,
