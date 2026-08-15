@@ -92,15 +92,32 @@ def stale_sources(roots: list[Path], index_path: Path) -> list[str]:
     return newer
 
 
-def reindex_command(index_path: Path, root: Path, tool: str | None) -> str:
-    """The command that would rebuild this index.
+#: How to invoke each indexer we have actually run. A name is not a command:
+#: scip-python ships on npm and is normally not on PATH at all, and its `index`
+#: subcommand takes no positional project root - it reads --cwd. Printing the
+#: bare name produced "command not found" for the first reader who tried to
+#: follow the advice. Nothing goes in here that has not been run and read.
+_INVOCATIONS = {
+    "scip-python": "npx @sourcegraph/scip-python index --cwd {root} --output {output}",
+}
 
-    Named after the tool the index says wrote it, because "re-index" is not
-    something a reader can run. codecards never runs it: an indexer executes
-    project code to resolve it, which is not a thing a viewer should do behind
-    someone's back.
+
+def reindex_command(index_path: Path, root: Path, tool: str | None) -> str | None:
+    """The command that would rebuild this index, when we know it exactly.
+
+    None when we do not. An indexer we have never run has a CLI we would be
+    guessing at, and a command that does not work is worse than no command:
+    it spends the reader's trust and their time before failing. The warning
+    still names the files and says the index is old.
+
+    codecards never runs this itself. An indexer executes project code in
+    order to resolve it, which is not something a viewer should do on
+    someone's behalf.
     """
-    return f"{tool or 'scip-python'} index {root} --output {index_path}"
+    template = _INVOCATIONS.get(tool or "")
+    if template is None:
+        return None
+    return template.format(root=root, output=index_path)
 
 
 def analyze(

@@ -13,17 +13,18 @@ import pytest
 
 pytest.importorskip("tree_sitter_python")
 
-from test_index import SYMBOL, document, metadata, occurrence
+from test_index import SYMBOL, document, metadata, occurrence, tool_info
 
 from codecards.scip import analyze, stale_sources
 
 
-def project(tmp_path, *, index_older: bool):
+def project(tmp_path, *, index_older: bool, tool: str | None = "scip-python"):
     """A one-file project and an index, with the clock set either way."""
     (tmp_path / "run.py").write_text("def main():\n    pass\n")
     index = tmp_path / "index.scip"
     index.write_bytes(
-        metadata(f"file://{tmp_path}")
+        (tool_info(tool) if tool else b"")
+        + metadata(f"file://{tmp_path}")
         + document("run.py", occurrence(0, 4, 8, SYMBOL, roles=1))
     )
     # Set times explicitly rather than sleeping: the test must not depend on
@@ -59,8 +60,40 @@ def test_a_current_index_reports_nothing_stale(tmp_path):
     assert report.stale == []
 
 
-def test_the_reindex_command_names_the_tool_that_built_it(tmp_path):
+def test_the_reindex_command_comes_from_the_tool_the_index_names(tmp_path):
     index = project(tmp_path, index_older=True)
     _, report = analyze(roots=[tmp_path], index_path=index, embed_source=False)
     assert report.reindex_command is not None
+    assert report.reindex_command.startswith("npx @sourcegraph/scip-python")
     assert str(index) in report.reindex_command
+
+
+def test_an_index_that_names_no_tool_still_warns(tmp_path):
+    """The files and the fact are the point. The command is a convenience,
+    and its absence must not swallow the warning."""
+    index = project(tmp_path, index_older=True, tool=None)
+    _, report = analyze(roots=[tmp_path], index_path=index, embed_source=False)
+    assert report.stale == ["run.py"]
+    assert report.reindex_command is None
+
+
+def test_the_command_is_one_that_actually_runs(tmp_path):
+    """A tool NAME is not a command. scip-python is distributed on npm and is
+    normally not on PATH at all, so printing the bare name produced
+    "command not found" for the one reader who tried to follow the advice.
+    """
+    from codecards.scip import reindex_command
+
+    command = reindex_command(tmp_path / "i.scip", tmp_path, "scip-python")
+    assert command.startswith("npx @sourcegraph/scip-python index")
+    # `index` takes no positional project root - it reads --cwd.
+    assert f"--cwd {tmp_path}" in command
+    assert f"--output {tmp_path / 'i.scip'}" in command
+
+
+def test_an_indexer_we_have_not_verified_gets_no_invented_command(tmp_path):
+    """Guessing a second time is how the first wrong command happened."""
+    from codecards.scip import reindex_command
+
+    assert reindex_command(tmp_path / "i.scip", tmp_path, "scip-elixir") is None
+    assert reindex_command(tmp_path / "i.scip", tmp_path, None) is None

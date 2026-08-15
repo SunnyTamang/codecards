@@ -181,7 +181,9 @@ CC.controls = (function () {
       if (stats.reindexCommand) {
         const how = document.createElement('p');
         how.className = 'stale';
-        how.textContent = 'Rebuild it with:';
+        how.textContent =
+          'Rebuild it with, from the environment the project runs in - an ' +
+          'indexer run outside it resolves far less and still reports success:';
         host.appendChild(how);
         const cmd = document.createElement('div');
         cmd.className = 'skipped';

@@ -148,7 +148,16 @@ def _warn_if_stale(report) -> None:
     if count > STALE_FILES_SHOWN:
         print(f"    ... and {count - STALE_FILES_SHOWN} more", file=sys.stderr)
     if report.reindex_command:
-        print(f"  Rebuild it with:\n    {report.reindex_command}", file=sys.stderr)
+        # An indexer resolves imports through the interpreter it can see. Run
+        # outside the project's environment it still exits 0, having resolved
+        # far less: on a 46-file project, 77 fewer edges and no error saying
+        # why. Naming the condition costs one line and is the difference
+        # between the command working and appearing to.
+        print(
+            "  Rebuild it with, from the environment the project runs in:\n"
+            f"    {report.reindex_command}",
+            file=sys.stderr,
+        )
 
 
 def _write_html(graph, report, args) -> None:
