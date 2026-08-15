@@ -38,9 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-html", action="store_true",
                         help="analyse only, do not write an HTML file")
     parser.add_argument("--scip", type=Path, metavar="INDEX",
-                        help="resolve calls from a SCIP index instead of by "
-                             "reading the Python source, using tree-sitter to "
-                             "find the call sites")
+                        help="resolve calls from a SCIP index rather than by "
+                             "reading the source. Experimental: you build the "
+                             "index first, and for Python it gives much the "
+                             "same graph as the default")
     parser.add_argument("--version", action="version", version=f"codecards {__version__}")
     return parser
 
