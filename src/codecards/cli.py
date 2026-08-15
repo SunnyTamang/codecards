@@ -37,6 +37,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--quiet", action="store_true", help="suppress the summary report")
     parser.add_argument("--no-html", action="store_true",
                         help="analyse only, do not write an HTML file")
+    parser.add_argument("--scip", type=Path, metavar="INDEX",
+                        help="resolve calls from a SCIP index instead of by "
+                             "reading the Python source, using tree-sitter to "
+                             "find the call sites")
     parser.add_argument("--version", action="version", version=f"codecards {__version__}")
     return parser
 
@@ -56,12 +60,29 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    graph, report = analyze(
-        roots=args.paths,
-        excludes=tuple(args.exclude),
-        include_external=args.include_external,
-        embed_source=not args.no_source,
-    )
+    if args.scip:
+        # Imported here so the default path never needs tree-sitter installed.
+        from .scip import IndexUnusable  # noqa: PLC0415
+        from .scip import analyze as analyze_scip  # noqa: PLC0415
+        if not args.scip.exists():
+            print(f"codecards: no such index: {args.scip}", file=sys.stderr)
+            return 1
+        try:
+            graph, report = analyze_scip(
+                roots=args.paths,
+                index_path=args.scip,
+                embed_source=not args.no_source,
+            )
+        except IndexUnusable as exc:
+            print(f"codecards: {exc}", file=sys.stderr)
+            return 1
+    else:
+        graph, report = analyze(
+            roots=args.paths,
+            excludes=tuple(args.exclude),
+            include_external=args.include_external,
+            embed_source=not args.no_source,
+        )
 
     if not graph.nodes:
         print(

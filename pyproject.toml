@@ -15,6 +15,9 @@ codecards = "codecards.cli:run"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-playwright>=0.5", "ruff>=0.16,<0.17"]
+# Only for --scip. The default path reads Python with the standard library
+# and needs nothing installed.
+scip = ["tree-sitter>=0.23", "tree-sitter-python>=0.23"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/codecards"]
