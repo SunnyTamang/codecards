@@ -122,3 +122,52 @@ def test_an_if_that_is_not_the_main_guard_is_not_mistaken_for_one():
     source = b'import os\n\nif os.getenv("X") == "1":\n    setup()\n'
     tree = syntax.parse(source)
     assert syntax.main_block_calls(tree, source) == []
+
+
+# -- the graph this extractor hands on ---------------------------------------
+
+def test_a_call_at_module_scope_leaves_no_edge(tmp_path):
+    """A call written at module scope encloses to the module, and a module
+    does not call anything - the interpreter runs it on import. Drawing it
+    would break the invariant that an edge starts at a callable, which is
+    exactly what went unnoticed while this path never validated its graph.
+    """
+    from test_index import SYMBOL, document, metadata, occurrence
+
+    from codecards.graph.model import CALLABLE_KINDS, validate
+
+    # `helper()` is called from inside main - a real edge, so the assertions
+    # below are not passing on an empty graph - and again at module scope,
+    # where there is no caller to leave.
+    helper = SYMBOL.replace("run()", "helper()")
+    (tmp_path / "run.py").write_text(
+        "def helper():\n"
+        "    pass\n"
+        "\n"
+        "\n"
+        "def main():\n"
+        "    helper()\n"
+        "\n"
+        "\n"
+        "helper()\n"
+    )
+    index = tmp_path / "index.scip"
+    index.write_bytes(
+        metadata(f"file://{tmp_path}")
+        + document("run.py",
+                   occurrence(0, 4, 10, helper, roles=1),   # def helper
+                   occurrence(4, 4, 8, SYMBOL, roles=1),    # def main
+                   occurrence(5, 4, 10, helper),            # called inside main
+                   occurrence(8, 0, 6, helper))             # called at module scope
+    )
+
+    from codecards.scip import analyze
+    graph, _ = analyze(roots=[tmp_path], index_path=index, embed_source=False)
+
+    # Ids come from the index's symbols, not the file name.
+    validate(graph)
+    assert [(e.source, e.target) for e in graph.edges] == [
+        ("pkg.mod.Thing.run", "pkg.mod.Thing.helper")
+    ]
+    for edge in graph.edges:
+        assert graph.nodes[edge.source].kind in CALLABLE_KINDS

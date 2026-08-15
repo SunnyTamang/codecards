@@ -19,6 +19,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ..graph.model import (
+    CALLABLE_KINDS,
     CallSite,
     CodeGraph,
     Confidence,
@@ -28,6 +29,7 @@ from ..graph.model import (
     Location,
     Node,
     NodeKind,
+    validate,
 )
 from ..report import AnalysisReport
 from . import index as scip
@@ -241,7 +243,14 @@ def analyze(
 
     merged: dict[tuple[str, str], list[CallSite]] = {}
     for source_id, target, site in call_records:
-        if source_id in nodes and target in nodes:
+        # A call written at module scope encloses to the module, which does not
+        # call anything - the interpreter runs it on import. The ones that
+        # matter are already carried as MAIN_BLOCK entry hints above, so an
+        # edge here would say the same thing in a shape the graph forbids.
+        # The call still counts as resolved; it simply has no caller to leave.
+        if nodes.get(source_id) is None or nodes[source_id].kind not in CALLABLE_KINDS:
+            continue
+        if target in nodes:
             merged.setdefault((source_id, target), []).append(site)
 
     edges = [
@@ -260,7 +269,12 @@ def analyze(
         ),
         edge_count=len(edges),
     )
-    return CodeGraph(nodes=nodes, edges=edges, entry_hints=hints), report
+    graph = CodeGraph(nodes=nodes, edges=edges, entry_hints=hints)
+    # The same check the AST extractor runs before handing a graph on. This
+    # path went without it, so a graph the renderer's invariants forbid was
+    # built and drawn anyway, and nothing said so.
+    validate(graph)
+    return graph, report
 
 
 def _check_root_matches(index: scip.Index, root: Path, index_path: Path) -> None:
