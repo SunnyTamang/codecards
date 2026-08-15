@@ -68,6 +68,11 @@ def build_viewmodel(
             "callableCount": report.callable_count,
             "edgeCount": report.edge_count,
             "skipped": [{"path": s.path, "reason": s.reason} for s in report.skipped],
+            # Carried into the page so the caveat travels with the artefact.
+            # A graph gets shared, opened weeks later, and shown to people who
+            # never saw the terminal that built it.
+            "stale": list(report.stale),
+            "reindexCommand": report.reindex_command,
         },
     }
 

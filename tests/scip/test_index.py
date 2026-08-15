@@ -141,3 +141,22 @@ def test_an_index_read_from_the_wrong_directory_says_so(tmp_path):
     message = str(caught.value)
     assert "/somewhere/else" in message
     assert str(elsewhere) in message
+
+
+def tool_info(name: str) -> bytes:
+    return delimited(1, delimited(2, delimited(1, name.encode())))
+
+
+def test_the_tool_that_built_the_index_is_recorded(tmp_path):
+    """Named in the re-index instruction, so the advice is a command the reader
+    can run rather than "rebuild it somehow"."""
+    path = tmp_path / "index.scip"
+    path.write_bytes(tool_info("scip-python")
+                     + document("m.py", occurrence(1, 0, 3, SYMBOL)))
+    assert scip.read(path).tool == "scip-python"
+
+
+def test_an_index_that_does_not_name_its_tool_says_nothing(tmp_path):
+    path = tmp_path / "index.scip"
+    path.write_bytes(document("m.py", occurrence(1, 0, 3, SYMBOL)))
+    assert scip.read(path).tool is None

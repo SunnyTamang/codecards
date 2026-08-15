@@ -76,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         except IndexUnusable as exc:
             print(f"codecards: {exc}", file=sys.stderr)
             return 1
+        _warn_if_stale(report)
     else:
         graph, report = analyze(
             roots=args.paths,
@@ -117,6 +118,37 @@ def main(argv: list[str] | None = None) -> int:
             print(f"wrote {args.output}")
 
     return 0
+
+
+#: Enough names to recognise what changed without burying the instruction
+#: that follows them.
+STALE_FILES_SHOWN = 5
+
+
+def _warn_if_stale(report) -> None:
+    """Say when the graph describes code that has since been edited.
+
+    This warns and continues rather than prompting. Someone reading a graph
+    wants the graph; being stopped to answer a question about indexing is not
+    what they came for, and a prompt cannot be answered at all when the output
+    is being piped. The same fact is recorded in the page, so it survives being
+    read by someone who never saw this terminal.
+    """
+    if not report.stale:
+        return
+    count = len(report.stale)
+    print(
+        f"codecards: warning - {count} source file{'' if count == 1 else 's'}"
+        " changed after the index was built, so this graph describes older"
+        " code:",
+        file=sys.stderr,
+    )
+    for name in report.stale[:STALE_FILES_SHOWN]:
+        print(f"    {name}", file=sys.stderr)
+    if count > STALE_FILES_SHOWN:
+        print(f"    ... and {count - STALE_FILES_SHOWN} more", file=sys.stderr)
+    if report.reindex_command:
+        print(f"  Rebuild it with:\n    {report.reindex_command}", file=sys.stderr)
 
 
 def _write_html(graph, report, args) -> None:

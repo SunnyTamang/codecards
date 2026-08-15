@@ -65,6 +65,44 @@ def _qualname(symbol: str) -> str | None:
     return ".".join(part for part in keep if part) or None
 
 
+def stale_sources(roots: list[Path], index_path: Path) -> list[str]:
+    """Source files modified after the index was written.
+
+    An index has no notion of when it was built and no checksum of what it
+    read, so the file's own mtime is the only thing available. That makes this
+    a smoke alarm, not a proof: it catches the ordinary case of editing code
+    and forgetting to re-index, and it will miss a change that preserves the
+    timestamp, or cry wolf after a checkout that rewrites mtimes without
+    changing content. Both failures are acceptable in a warning that never
+    blocks; neither would be in anything that did.
+    """
+    try:
+        built = index_path.stat().st_mtime
+    except OSError:
+        return []
+    newer: list[str] = []
+    for root in roots:
+        base = Path(root)
+        for path in sorted(base.rglob("*.py")):
+            try:
+                if path.stat().st_mtime > built:
+                    newer.append(path.relative_to(base).as_posix())
+            except OSError:  # vanished mid-walk; nothing to say about it
+                continue
+    return newer
+
+
+def reindex_command(index_path: Path, root: Path, tool: str | None) -> str:
+    """The command that would rebuild this index.
+
+    Named after the tool the index says wrote it, because "re-index" is not
+    something a reader can run. codecards never runs it: an indexer executes
+    project code to resolve it, which is not a thing a viewer should do behind
+    someone's back.
+    """
+    return f"{tool or 'scip-python'} index {root} --output {index_path}"
+
+
 def analyze(
     roots: list[Path],
     index_path: Path,
@@ -258,10 +296,15 @@ def analyze(
         for (s, t), sites in sorted(merged.items())
     ]
 
+    stale = stale_sources(list(roots), Path(index_path))
     report = AnalysisReport(
         total_calls=sum(by_confidence.values()),
         by_confidence=by_confidence,
         skipped=[],
+        stale=stale,
+        reindex_command=(
+            reindex_command(Path(index_path), root, index.tool) if stale else None
+        ),
         node_count=len(nodes),
         callable_count=sum(
             1 for n in nodes.values()

@@ -7,6 +7,10 @@ CC.controls = (function () {
   //: Most a single entry-point group lists before it stops being a menu.
   const MAX_ENTRIES_PER_GROUP = 50;
 
+  //: Enough stale files to recognise what changed, not so many that the
+  //: instruction under them scrolls out of sight.
+  const STALE_SHOWN = 10;
+
   const REASON_LABEL = {
     main_block: '__main__ block',
     console_script: 'console script',
@@ -57,10 +61,16 @@ CC.controls = (function () {
   function defaultStatus() {
     const stats = CC.view.state.data.stats;
     const skipped = stats.skipped.length;
+    const stale = (stats.stale || []).length;
     status(
       stats.callableCount + ' callables, ' + stats.edgeCount + ' edges, ' +
       Math.round(stats.resolutionRate * 100) + '% resolved' +
-      (skipped ? ', ' + skipped + ' file' + (skipped === 1 ? '' : 's') + ' skipped' : ''));
+      (skipped ? ', ' + skipped + ' file' + (skipped === 1 ? '' : 's') + ' skipped' : '') +
+      // Sits in the status bar rather than the panel alone: it qualifies
+      // everything on the canvas, so it should be readable without opening
+      // anything.
+      (stale ? ' - ' + stale + ' file' + (stale === 1 ? '' : 's') +
+        ' newer than the index' : ''));
   }
 
   function setTierVisibility(tier, visible) {
@@ -140,6 +150,45 @@ CC.controls = (function () {
     const heading = document.createElement('h2');
     heading.textContent = 'What this graph knows';
     host.appendChild(heading);
+
+    // First, above the numbers: this qualifies every one of them. A reader
+    // who stops after the resolution rate should already have seen it.
+    if ((stats.stale || []).length) {
+      const staleHeading = document.createElement('h3');
+      staleHeading.textContent = 'This graph may be out of date';
+      host.appendChild(staleHeading);
+
+      const why = document.createElement('p');
+      why.className = 'stale';
+      why.textContent =
+        'It was resolved from an index built before ' + stats.stale.length +
+        ' of these files were last edited, so anything defined or called in ' +
+        'them may be drawn as it used to be:';
+      host.appendChild(why);
+
+      stats.stale.slice(0, STALE_SHOWN).forEach(function (name) {
+        const line = document.createElement('div');
+        line.className = 'skipped';
+        line.textContent = name;
+        host.appendChild(line);
+      });
+      if (stats.stale.length > STALE_SHOWN) {
+        const more = document.createElement('div');
+        more.className = 'skipped';
+        more.textContent = '... and ' + (stats.stale.length - STALE_SHOWN) + ' more';
+        host.appendChild(more);
+      }
+      if (stats.reindexCommand) {
+        const how = document.createElement('p');
+        how.className = 'stale';
+        how.textContent = 'Rebuild it with:';
+        host.appendChild(how);
+        const cmd = document.createElement('div');
+        cmd.className = 'skipped';
+        cmd.textContent = stats.reindexCommand;
+        host.appendChild(cmd);
+      }
+    }
 
     const table = document.createElement('table');
     const rows = [

@@ -26,6 +26,12 @@ class AnalysisReport:
     node_count: int = 0
     callable_count: int = 0
     edge_count: int = 0
+    #: Source files modified after the index that resolved them was built, so
+    #: the graph describes code that has since changed. Only ever populated on
+    #: a path that reads an index; empty everywhere else.
+    stale: list[str] = field(default_factory=list)
+    #: What to run to rebuild that index. Shown alongside stale, never alone.
+    reindex_command: str | None = None
 
     @property
     def resolution_rate(self) -> float:

@@ -50,6 +50,9 @@ class Index:
     #: which project an index belongs to.
     project_root: str
     documents: tuple[Document, ...]
+    #: The indexer that wrote this file, when it says. Used to tell a reader
+    #: holding a stale index which command would rebuild it.
+    tool: str | None = None
 
 
 def _varint(buf: bytes, i: int) -> tuple[int, int]:
@@ -99,12 +102,18 @@ def read(path: Path) -> Index:
     raw = Path(path).read_bytes()
     documents: list[Document] = []
     project_root = ""
+    tool: str | None = None
 
     for number, _wire, payload in _fields(raw):
         if number == 1 and isinstance(payload, bytes):
             for mn, mwire, mpayload in _fields(payload):
                 if mn == 3 and mwire == 2:
                     project_root = mpayload.decode("utf-8", "replace")
+                # ToolInfo, whose own first field is the indexer's name.
+                elif mn == 2 and mwire == 2:
+                    for tn, twire, tpayload in _fields(mpayload):
+                        if tn == 1 and twire == 2:
+                            tool = tpayload.decode("utf-8", "replace")
             continue
         if number != 2 or not isinstance(payload, bytes):
             continue
@@ -139,7 +148,7 @@ def read(path: Path) -> Index:
 
         documents.append(Document(path=doc_path, occurrences=tuple(occurrences)))
 
-    return Index(project_root=project_root, documents=tuple(documents))
+    return Index(project_root=project_root, documents=tuple(documents), tool=tool)
 
 
 def is_empty(documents) -> bool:
