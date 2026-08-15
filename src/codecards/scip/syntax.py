@@ -163,6 +163,36 @@ def call_sites(tree, source: bytes) -> list[CallSite]:
     return sites
 
 
+def main_block_calls(tree, source: bytes) -> list[CallSite]:
+    """Calls made under `if __name__ == "__main__":`, at module level.
+
+    This is a door into the program, and the only signal that says so. Without
+    it the entry-point menu falls back to "nothing calls this", which on a
+    real project lists every test and every helper and never mentions main.
+    """
+    def is_main_guard(node: Node) -> bool:
+        condition = node.child_by_field_name("condition")
+        if condition is None or condition.type != "comparison_operator":
+            return False
+        text = _text(condition, source)
+        return "__name__" in text and "__main__" in text
+
+    for node in tree.root_node.children:
+        if node.type != "if_statement" or not is_main_guard(node):
+            continue
+        body = node.child_by_field_name("consequence")
+        if body is None:
+            continue
+        return call_sites_in(body, source)
+    return []
+
+
+def call_sites_in(node: Node, source: bytes) -> list[CallSite]:
+    """The calls inside one subtree, rather than the whole file."""
+    holder = type("Holder", (), {"root_node": node})
+    return call_sites(holder, source)
+
+
 def highlight(tree, source: bytes, first_line: int, last_line: int):
     """Token runs per line, in the shape the renderer already paints.
 

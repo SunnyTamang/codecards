@@ -87,3 +87,38 @@ def test_highlighting_emits_only_the_runs_that_are_not_plain():
     for line in runs.values():
         for start, length, _cls in line:
             assert start >= 0 and length > 0
+
+
+MAIN_BLOCK_SOURCE = b'''
+def main():
+    pass
+
+
+def helper():
+    pass
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_the_main_guard_is_found_and_only_its_calls_are_returned():
+    """The one signal that says "this is a door into the program". Without it
+    the entry-point menu falls back to "nothing calls this", which lists every
+    uncalled helper and never mentions main."""
+    tree = syntax.parse(MAIN_BLOCK_SOURCE)
+    calls = syntax.main_block_calls(tree, MAIN_BLOCK_SOURCE)
+    assert [c.text for c in calls] == ["main"]
+
+
+def test_a_file_with_no_main_guard_offers_nothing():
+    source = b"def main():\n    pass\n\nmain()\n"
+    tree = syntax.parse(source)
+    assert syntax.main_block_calls(tree, source) == []
+
+
+def test_an_if_that_is_not_the_main_guard_is_not_mistaken_for_one():
+    source = b'import os\n\nif os.getenv("X") == "1":\n    setup()\n'
+    tree = syntax.parse(source)
+    assert syntax.main_block_calls(tree, source) == []

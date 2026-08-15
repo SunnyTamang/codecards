@@ -23,6 +23,8 @@ from ..graph.model import (
     CodeGraph,
     Confidence,
     Edge,
+    EntryHint,
+    EntryReason,
     Location,
     Node,
     NodeKind,
@@ -217,6 +219,24 @@ def analyze(
         if len(parts) > 1:
             nodes[module_id] = _reparent(nodes[module_id], ".".join(parts[:-1]))
 
+    # -- doors into the program --------------------------------------------
+    # Everything meaningful about an entry point comes from the extractor;
+    # the graph layer only ever adds "nothing calls this" on its own. Leaving
+    # these out is what makes the menu a list of every uncalled helper.
+    hints: list[EntryHint] = []
+    for path, (tree, source_bytes) in parsed_files.items():
+        for site in syntax.main_block_calls(tree, source_bytes):
+            symbol = resolved.get((path, site.name_line, site.name_char))
+            target = defines.get(symbol) if symbol else None
+            if target:
+                hints.append(EntryHint(target, EntryReason.MAIN_BLOCK))
+
+    for node in nodes.values():
+        if node.kind in (NodeKind.FUNCTION, NodeKind.METHOD) \
+                and node.name.startswith("test_") \
+                and node.location and _looks_like_a_test_file(node.location.file):
+            hints.append(EntryHint(node.id, EntryReason.TEST))
+
     merged: dict[tuple[str, str], list[CallSite]] = {}
     for source_id, target, site in call_records:
         if source_id in nodes and target in nodes:
@@ -238,7 +258,12 @@ def analyze(
         ),
         edge_count=len(edges),
     )
-    return CodeGraph(nodes=nodes, edges=edges), report
+    return CodeGraph(nodes=nodes, edges=edges, entry_hints=hints), report
+
+
+def _looks_like_a_test_file(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return name.startswith("test_") or name.endswith("_test.py") or "/tests/" in path
 
 
 def _reparent(node: Node, parent: str) -> Node:
