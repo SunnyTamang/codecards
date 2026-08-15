@@ -234,14 +234,22 @@ class _Resolver:
         `import ... as`, `nonlocal` rebinding from a closure, a nested
         def/lambda's own parameter of the same name...). So this does not
         try to prove a candidate type was destroyed; it requires proof it
-        was never disturbed: a candidate is kept only when its name is
-        bound EXACTLY ONCE across the entire function - including nested
-        scopes - and that one binding is the inferable one. Any second
-        binding of any kind, anywhere, drops it. A binding form this
-        function fails to recognise therefore costs a missing type, never
-        a wrong one. Do not "optimise" the single-binding rule away - that
-        is exactly what keeps an unenumerated rebinding form from
-        producing a confidently wrong edge.
+        was never disturbed: a candidate is kept only when EVERY binding of
+        its name across the entire function - including nested scopes - was
+        recognised here, and they all name the same class. A binding form
+        this function fails to recognise is therefore counted but never
+        typed, so it can only sink a candidate, never change one. Missing a
+        binding form costs a missing type, never a wrong one.
+
+        Do not weaken that accounting into "the bindings we happened to
+        understand agree" - it is what keeps an unenumerated rebinding form
+        from producing a confidently wrong edge.
+
+        Two bindings that agree are common enough to be worth reading:
+        `client = client or LLMClient()` fills in a default, binding the
+        name a second time to the very class the parameter already
+        declared. Requiring a single binding refused every dependency
+        injected that way.
         """
         # How many times each name is bound anywhere in this function,
         # including nested defs/lambdas/comprehensions/match blocks - unlike
@@ -275,49 +283,118 @@ class _Resolver:
 
         # The small, closed set of statically inferable bindings, restricted
         # to this function's own scope (not a nested def/class's statements -
-        # those are a different variable even if it shares the name).
-        candidates: dict[str, str] = {}
+        # those are a different variable even if it shares the name). One
+        # entry per binding SITE, not per name: the count is what proves
+        # every binding was accounted for.
+        typed: dict[str, list[str]] = {}
         args = node.args
         every = [*args.posonlyargs, *args.args, *args.kwonlyargs]
         if args.vararg:
             every.append(args.vararg)
         if args.kwarg:
             every.append(args.kwarg)
+
+        # Parameters first, and kept aside: a right-hand side may refer back to
+        # the parameter it is filling in a default for.
+        declared: dict[str, str] = {}
         for arg in every:
             if arg.annotation is not None:
                 class_qualname = self._resolve_annotation(arg.annotation, context)
                 if class_qualname:
-                    candidates[arg.arg] = class_qualname
+                    declared[arg.arg] = class_qualname
+                    typed.setdefault(arg.arg, []).append(class_qualname)
 
         for statement in iter_own_scope(node.body):
             if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
                 class_qualname = self._resolve_annotation(statement.annotation, context)
                 if class_qualname:
-                    candidates[statement.target.id] = class_qualname
+                    typed.setdefault(statement.target.id, []).append(class_qualname)
             elif isinstance(statement, ast.Assign):
-                class_qualname = self._constructed_class(statement.value, context)
+                class_qualname = self._assigned_class(statement.value, context, declared)
                 if class_qualname:
                     for target in statement.targets:
                         if isinstance(target, ast.Name):
-                            candidates[target.id] = class_qualname
+                            typed.setdefault(target.id, []).append(class_qualname)
 
         return {
-            name: class_qualname
-            for name, class_qualname in candidates.items()
-            if binding_counts[name] == 1
+            name: found[0]
+            for name, found in typed.items()
+            if len(found) == binding_counts[name] and len(set(found)) == 1
         }
 
+    def _assigned_class(
+        self, node: ast.expr, context: _Context, declared: dict[str, str]
+    ) -> str | None:
+        """The class a right-hand side produces, when it provably produces one.
+
+        `declared` holds the types this function's annotated parameters carry,
+        which is what lets `client = client or LLMClient()` be read: one branch
+        is a constructor, the other is the parameter being defaulted.
+        """
+        if isinstance(node, ast.BoolOp):
+            produced = {self._assigned_class(value, context, declared) for value in node.values}
+            # A single shared class, and nothing unreadable among them.
+            return produced.pop() if len(produced) == 1 else None
+        if isinstance(node, ast.Name):
+            return declared.get(node.id)
+        return self._constructed_class(node, context)
+
     def _resolve_annotation(self, node: ast.expr, context: _Context) -> str | None:
-        """Map an annotation expression onto a class qualname, if it names one."""
+        """Map an annotation expression onto a class qualname, if it names one.
+
+        `X`, `X | None` and `Optional[X]` all declare the same receiver, and an
+        injected dependency is far more often written in one of the latter two
+        than as a bare class. Every alternative must land on the same class:
+        `A | B` is two real possibilities, not a declared type, and picking one
+        would be exactly the guess the confidence tiers exist to prevent.
+        """
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             try:
                 node = ast.parse(node.value, mode="eval").body
             except SyntaxError:
                 return None
-        dotted = self._dotted_receiver(node)
-        if dotted is None:
+        alternatives = [
+            alternative
+            for alternative in self._annotation_alternatives(node)
+            if not (isinstance(alternative, ast.Constant) and alternative.value is None)
+        ]
+        if not alternatives:
             return None
-        return self._as_class(dotted, context)
+        resolved = set()
+        for alternative in alternatives:
+            dotted = self._dotted_receiver(alternative)
+            if dotted is None:
+                return None
+            found = self._as_class(dotted, context)
+            if found is None:
+                return None
+            resolved.add(found)
+        return resolved.pop() if len(resolved) == 1 else None
+
+    @staticmethod
+    def _annotation_alternatives(node: ast.expr) -> list[ast.expr]:
+        """Flatten `A | B`, `Optional[A]` and `Union[A, B]` into their parts.
+
+        Anything else is one alternative: its own node. A subscript that is not
+        a union - `list[str]` - is deliberately left whole, so it fails to name
+        a class further up rather than being mistaken for its parameter.
+        """
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return [
+                *_Resolver._annotation_alternatives(node.left),
+                *_Resolver._annotation_alternatives(node.right),
+            ]
+        if isinstance(node, ast.Subscript):
+            head = _Resolver._dotted_receiver(node.value)
+            if head is not None and head.rpartition(".")[2] in ("Optional", "Union"):
+                inner = node.slice
+                if isinstance(inner, ast.Tuple):
+                    parts: list[ast.expr] = []
+                    for element in inner.elts:
+                        parts.extend(_Resolver._annotation_alternatives(element))
+                    return parts
+                return _Resolver._annotation_alternatives(inner)
+        return [node]
 
     def _constructed_class(self, node: ast.expr, context: _Context) -> str | None:
         """`H()` on the right-hand side of an assignment tells us the type."""

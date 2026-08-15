@@ -1034,3 +1034,95 @@ def test_a_method_is_still_inferred(tmp_path):
         "other.py": "def go(x):\n    return x.deliver()\n",
     })
     assert result[("other.go", "m.Mailer.deliver")] is Confidence.INFERRED
+
+
+# -- resolving through a declared type ---------------------------------------
+
+#: The dependency-injection shape this project is repeatedly pointed at: one
+#: real class, and several stand-ins defining the same method names. Only the
+#: annotation distinguishes them.
+_INJECTED = {
+    "app/__init__.py": "",
+    "app/client.py": "class LLMClient:\n    def complete(self, text):\n        pass\n",
+    "app/trace.py": (
+        "class Tracing:\n"
+        "    def __init__(self, inner):\n"
+        "        self._inner = inner\n"
+        "    def complete(self, text):\n"
+        "        return self._inner.complete(text)\n"
+    ),
+    "tests_pkg/__init__.py": "",
+    "tests_pkg/fake.py": "class FakeClient:\n    def complete(self, text):\n        pass\n",
+}
+
+
+def test_an_optional_annotation_names_the_class_it_wraps(tmp_path):
+    """`X | None` is the ordinary way to write an injected dependency. Reading
+    only a bare `X` leaves the commonest form of the idiom unresolved."""
+    result = edges_for(tmp_path, {**_INJECTED, "app/node.py": (
+        "from app.client import LLMClient\n\n"
+        "def summarise(client: LLMClient | None):\n"
+        "    return client.complete('x')\n"
+    )})
+    assert result[("app.node.summarise", "app.client.LLMClient.complete")] \
+        is Confidence.RESOLVED
+
+
+def test_optional_spelled_the_typing_way_also_names_its_class(tmp_path):
+    result = edges_for(tmp_path, {**_INJECTED, "app/node.py": (
+        "from typing import Optional\n"
+        "from app.client import LLMClient\n\n"
+        "def summarise(client: Optional[LLMClient]):\n"
+        "    return client.complete('x')\n"
+    )})
+    assert result[("app.node.summarise", "app.client.LLMClient.complete")] \
+        is Confidence.RESOLVED
+
+
+def test_a_default_filled_in_from_the_same_class_keeps_the_declared_type(tmp_path):
+    """`client = client or LLMClient()` rebinds the name, but both branches
+    carry the same class, so the declared type survives the rebinding."""
+    result = edges_for(tmp_path, {**_INJECTED, "app/node.py": (
+        "from app.client import LLMClient\n\n"
+        "def summarise(client: LLMClient | None = None):\n"
+        "    client = client or LLMClient()\n"
+        "    return client.complete('x')\n"
+    )})
+    assert result[("app.node.summarise", "app.client.LLMClient.complete")] \
+        is Confidence.RESOLVED
+    # and nothing is drawn to the stand-ins that merely share the method name
+    assert ("app.node.summarise", "tests_pkg.fake.FakeClient.complete") not in result
+    assert ("app.node.summarise", "app.trace.Tracing.complete") not in result
+
+
+def test_a_union_of_two_classes_is_not_resolved_to_either(tmp_path):
+    """Two real possibilities is not a declared type. Picking one would be a
+    guess, and the whole point of the tier is that guesses are marked."""
+    result = edges_for(tmp_path, {**_INJECTED, "app/node.py": (
+        "from app.client import LLMClient\n"
+        "from tests_pkg.fake import FakeClient\n\n"
+        "def summarise(client: LLMClient | FakeClient):\n"
+        "    return client.complete('x')\n"
+    )})
+    assert ("app.node.summarise", "app.client.LLMClient.complete") not in result
+
+
+def test_an_unrecognised_rebinding_still_drops_the_declared_type(tmp_path):
+    """The safety property: a binding form this code cannot type must cost a
+    missing edge, never a wrong one."""
+    result = edges_for(tmp_path, {**_INJECTED, "app/node.py": (
+        "from app.client import LLMClient\n\n"
+        "def summarise(client: LLMClient | None, others):\n"
+        "    for client in others:\n"
+        "        pass\n"
+        "    return client.complete('x')\n"
+    )})
+    assert result.get(("app.node.summarise", "app.client.LLMClient.complete")) \
+        is not Confidence.RESOLVED
+
+
+def test_an_untyped_wrapper_stays_ambiguous(tmp_path):
+    """Tracing holds `inner` with no annotation, so there is genuinely nothing
+    to resolve and the call must stay ambiguous rather than pick a favourite."""
+    result = edges_for(tmp_path, {**_INJECTED})
+    assert ("app.trace.Tracing.complete", "app.client.LLMClient.complete") not in result
