@@ -28,6 +28,16 @@ def mod(node_id: str, parent: str | None = None) -> Node:
     return Node(id=node_id, kind=NodeKind.MODULE, name=node_id.rsplit(".", 1)[-1], parent=parent)
 
 
+def cls(node_id: str, parent: str | None = None) -> Node:
+    return Node(
+        id=node_id,
+        kind=NodeKind.CLASS,
+        name=node_id.rsplit(".", 1)[-1],
+        parent=parent,
+        location=Location(file="a.py", line_start=1, line_end=2),
+    )
+
+
 def graph_of(*nodes: Node, edges: list[Edge] | None = None) -> CodeGraph:
     return CodeGraph(nodes={n.id: n for n in nodes}, edges=list(edges or []))
 
@@ -62,9 +72,25 @@ def test_edge_to_missing_node_is_rejected():
         validate(g)
 
 
-def test_edge_touching_a_non_callable_is_rejected():
+def test_edge_to_a_module_is_rejected():
     g = graph_of(mod("app"), fn("app.a", parent="app"),
                  edges=[Edge(source="app.a", target="app", confidence=Confidence.RESOLVED)])
+    with pytest.raises(GraphInvariantError, match="callable"):
+        validate(g)
+
+
+def test_an_edge_may_end_on_a_class():
+    """Constructing a class is a call, and a class with no __init__ has nothing
+    more specific to point at. Only the target may be one: a class does not
+    make calls, its methods do."""
+    g = graph_of(mod("app"), fn("app.a", parent="app"), cls("app.H", parent="app"),
+                 edges=[Edge(source="app.a", target="app.H", confidence=Confidence.RESOLVED)])
+    validate(g)
+
+
+def test_an_edge_may_not_start_at_a_class():
+    g = graph_of(mod("app"), fn("app.a", parent="app"), cls("app.H", parent="app"),
+                 edges=[Edge(source="app.H", target="app.a", confidence=Confidence.RESOLVED)])
     with pytest.raises(GraphInvariantError, match="callable"):
         validate(g)
 

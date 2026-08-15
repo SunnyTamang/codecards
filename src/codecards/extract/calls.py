@@ -621,5 +621,11 @@ class _Resolver:
                 init = f"{base}.__init__"
                 if init in self.table.definitions:
                     return init, Confidence.RESOLVED, ()
-            return None, Confidence.UNRESOLVED, ()
+            # No __init__ anywhere in the MRO we can see, so fall through to
+            # the class itself. The call is still a call and the class is still
+            # known - what is missing is only a method to name, because the
+            # constructor is inherited from outside the analysed code. A
+            # pydantic model and a dataclass are both this shape, so dropping
+            # the edge here lost most of the calls in a modern codebase rather
+            # than a rare corner.
         return target, Confidence.RESOLVED, ()

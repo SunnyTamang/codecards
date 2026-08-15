@@ -88,9 +88,30 @@ def test_constructor_call_retargets_to_init(tmp_path):
     assert result[("m.go", "m.H.__init__")] is Confidence.RESOLVED
 
 
-def test_constructor_without_init_is_unresolved(tmp_path):
+def test_constructor_without_an_init_draws_to_the_class(tmp_path):
+    """A class with no __init__ is still constructed, and which class it is was
+    never in doubt. Only the method name is missing, so the call points at the
+    class itself rather than being dropped for want of somewhere to land.
+
+    Every pydantic model and every dataclass is such a class, so dropping these
+    silently removed most of the calls in a modern codebase.
+    """
     result = edges_for(tmp_path, {"m.py": "class H:\n    pass\n\ndef go():\n    H()\n"})
-    assert result[("m.go", None)] is Confidence.UNRESOLVED
+    assert result[("m.go", "m.H")] is Confidence.RESOLVED
+
+
+def test_an_init_inherited_from_a_base_still_wins(tmp_path):
+    """The class is the fallback, not the preference: a real __init__ anywhere
+    in the MRO is a more specific answer and keeps its edge."""
+    result = edges_for(tmp_path, {"m.py": (
+        "class Base:\n    def __init__(self):\n        pass\n"
+        "\n"
+        "class H(Base):\n    pass\n"
+        "\n"
+        "def go():\n    H()\n"
+    )})
+    assert result[("m.go", "m.Base.__init__")] is Confidence.RESOLVED
+    assert ("m.go", "m.H") not in result
 
 
 def test_getattr_call_is_unresolved(tmp_path):

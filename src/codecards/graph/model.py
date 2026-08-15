@@ -143,11 +143,19 @@ def validate(graph: CodeGraph) -> None:
             seen.add(current)
             current = graph.nodes[current].parent
 
+    # An edge is one callable calling something callable. The two ends are not
+    # symmetric: a class does not make calls - its methods do - but a class is
+    # called, and constructing one whose __init__ is inherited from outside the
+    # analysed code leaves nothing more specific to point at.
     for edge in graph.edges:
         for endpoint in (edge.source, edge.target):
             if endpoint not in graph.nodes:
                 raise GraphInvariantError(f"edge references unknown node {endpoint!r}")
-            if graph.nodes[endpoint].kind not in CALLABLE_KINDS:
+        for endpoint, allowed in (
+            (edge.source, CALLABLE_KINDS),
+            (edge.target, CALLABLE_KINDS | {NodeKind.CLASS}),
+        ):
+            if graph.nodes[endpoint].kind not in allowed:
                 raise GraphInvariantError(
                     f"edge endpoint {endpoint!r} is {graph.nodes[endpoint].kind.value},"
                     " but edges must connect callables only"
