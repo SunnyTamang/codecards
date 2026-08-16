@@ -87,6 +87,11 @@ class Grammar:
     #: Definitions that are themselves doors in. Go's `main` is one.
     entry_definitions: Callable[..., list] | None = None
 
+    #: The type a method is attached to, for languages that attach by
+    #: declaration rather than by nesting. With an index the symbol says this;
+    #: without one it has to be read off the receiver.
+    receiver_type: Callable[..., str | None] | None = None
+
     @cached_property
     def language(self) -> Any:
         import importlib  # noqa: PLC0415 - only when a grammar is actually used
@@ -157,6 +162,27 @@ def _go_doc_comment(node, text, source: bytes) -> str | None:
         comment = above
     line = text(comment, source).lstrip("/").strip()
     return line or None
+
+
+def _go_receiver_type(node, text, source: bytes) -> str | None:
+    """The type named in `func (m *model) Init()`, ignoring the pointer."""
+    receiver = node.child_by_field_name("receiver")
+    if receiver is None:
+        return None
+    for declaration in receiver.children:
+        if declaration.type != "parameter_declaration":
+            continue
+        named = declaration.child_by_field_name("type")
+        if named is None:
+            continue
+        if named.type == "pointer_type":
+            for child in named.children:
+                if child.type == "type_identifier":
+                    return text(child, source)
+            return None
+        if named.type == "type_identifier":
+            return text(named, source)
+    return None
 
 
 def _python_main_block(grammar, tree, source: bytes):
@@ -272,6 +298,7 @@ GO = Grammar(
     ),
     docstring=_go_doc_comment,
     entry_definitions=_go_main_function,
+    receiver_type=_go_receiver_type,
 )
 
 ALL = (PYTHON, GO)

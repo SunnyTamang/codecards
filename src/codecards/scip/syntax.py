@@ -35,6 +35,9 @@ class Definition:
     docstring: str | None
     parent: Definition | None = None
     children: list[Definition] = field(default_factory=list)
+    #: The node itself, for the questions only a language can answer about it -
+    #: which type a receiver attaches a method to, for instance.
+    node: Node | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,7 @@ def definitions(grammar: Grammar, tree, source: bytes) -> list[Definition]:
                     docstring=(grammar.docstring(node, _text, source)
                                if grammar.docstring else None),
                     parent=parent,
+                    node=node,
                 )
                 if parent is not None:
                     parent.children.append(definition)

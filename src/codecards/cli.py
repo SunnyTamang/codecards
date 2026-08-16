@@ -87,6 +87,14 @@ def main(argv: list[str] | None = None) -> int:
             include_external=args.include_external,
             embed_source=not args.no_source,
         )
+        # No Python, but perhaps a language this can still read the shape of.
+        # Without an index nothing here is certain, so every edge it draws is
+        # marked as the guess it is - which is still a great deal more use
+        # than telling someone holding a Go project that it is empty.
+        if not graph.nodes:
+            structural = _read_structure(args)
+            if structural is not None:
+                graph, report = structural
 
     if not graph.nodes:
         where = ", ".join(str(p) for p in args.paths)
@@ -124,6 +132,33 @@ def main(argv: list[str] | None = None) -> int:
 #: Enough names to recognise what changed without burying the instruction
 #: that follows them.
 STALE_FILES_SHOWN = 5
+
+
+def _read_structure(args):
+    """Fall back to structure alone, when the parsers for it are installed.
+
+    Returns None if there is nothing to read or tree-sitter is absent, leaving
+    the caller to print the message it would have printed anyway. An optional
+    dependency that is missing is not an error here - it is simply the reason
+    this cannot help.
+    """
+    try:
+        from .scip import structural  # noqa: PLC0415
+    except ImportError:
+        return None
+    if not structural.source_files([Path(p) for p in args.paths]):
+        return None
+    graph, report = structural.analyze(
+        roots=args.paths, embed_source=not args.no_source)
+    if not graph.nodes:
+        return None
+    print(
+        "codecards: no index, so calls are matched by name and every edge is"
+        " marked inferred or ambiguous. Build an index for a resolved graph:",
+        file=sys.stderr,
+    )
+    _suggest_an_index(args.paths)
+    return graph, report
 
 
 def _suggest_an_index(paths, output: Path | None = None) -> None:
