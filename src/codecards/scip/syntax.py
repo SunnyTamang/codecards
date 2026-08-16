@@ -8,6 +8,9 @@ same role, so syntax is the only thing that tells them apart.
 Nothing here resolves anything. It reports what the file says: where the
 definitions are, where the calls are, and which run of characters is a keyword
 or a string. What any of it means is the index's job.
+
+Nothing here knows what language it is reading either. Every node type, field
+name and keyword arrives in a `Grammar`; this module only walks.
 """
 
 from __future__ import annotations
@@ -15,25 +18,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import tree_sitter_python
-from tree_sitter import Language, Node, Parser
+from tree_sitter import Node, Parser
 
-LANGUAGE = Language(tree_sitter_python.language())
-
-#: node type -> the class the renderer paints it with.
-_TOKEN_CLASS = {
-    "string": "str", "string_content": "str", "string_start": "str",
-    "string_end": "str", "integer": "num", "float": "num", "comment": "com",
-    "true": "kw", "false": "kw", "none": "kw",
-}
-_KEYWORDS = {
-    "def", "class", "return", "if", "elif", "else", "for", "while", "import",
-    "from", "as", "with", "try", "except", "finally", "raise", "yield", "pass",
-    "break", "continue", "lambda", "global", "nonlocal", "assert", "del",
-    "async", "await", "not", "and", "or", "in", "is",
-}
-
-_DEFINITION_NODES = {"function_definition", "class_definition"}
+from .grammars import Grammar
 
 
 @dataclass
@@ -61,41 +48,37 @@ class CallSite:
     in_loop: bool
 
 
-def parse(source: bytes):
-    return Parser(LANGUAGE).parse(source)
+def parse(grammar: Grammar, source: bytes):
+    return Parser(grammar.language).parse(source)
 
 
 def _text(node: Node, source: bytes) -> str:
     return source[node.start_byte:node.end_byte].decode("utf-8", "replace")
 
 
-def _docstring(body: Node | None, source: bytes) -> str | None:
-    if body is None or not body.children:
-        return None
-    first = body.children[0]
-    if first.type != "expression_statement" or not first.children:
-        return None
-    literal = first.children[0]
-    if literal.type != "string":
-        return None
-    raw = _text(literal, source).strip("\"'\n ")
-    line = raw.strip().splitlines()
-    return line[0].strip() if line else None
+def definitions(grammar: Grammar, tree, source: bytes) -> list[Definition]:
+    """Every type and callable in the file, nested as they are written.
 
-
-def definitions(tree, source: bytes) -> list[Definition]:
-    """Every class and callable in the file, nested as they are written."""
+    Nesting is only what the source shows. A language that attaches a method
+    to its type by declaring a receiver rather than by nesting it reports that
+    method with no parent here, and the index supplies the containment.
+    """
     found: list[Definition] = []
+    wanted = grammar.callable_nodes | grammar.type_nodes
 
     def walk(node: Node, parent: Definition | None) -> None:
         current = parent
-        if node.type in _DEFINITION_NODES:
-            name_node = node.child_by_field_name("name")
+        if node.type in wanted:
+            name_node = node.child_by_field_name(grammar.name_field)
             if name_node is not None:
-                params = node.child_by_field_name("parameters")
-                is_class = node.type == "class_definition"
-                kind = "class" if is_class else (
-                    "method" if parent and parent.kind == "class" else "function")
+                params = node.child_by_field_name(grammar.parameters_field)
+                is_type = node.type in grammar.type_nodes
+                if is_type:
+                    kind = "class"
+                elif node.type in grammar.method_nodes:
+                    kind = "method"
+                else:
+                    kind = "method" if parent and parent.kind == "class" else "function"
                 definition = Definition(
                     name=_text(name_node, source),
                     kind=kind,
@@ -103,9 +86,10 @@ def definitions(tree, source: bytes) -> list[Definition]:
                     line_end=node.end_point[0] + 1,
                     name_line=name_node.start_point[0],
                     name_char=name_node.start_point[1],
-                    signature="" if is_class or params is None
+                    signature="" if is_type or params is None
                               else _text(params, source),
-                    docstring=_docstring(node.child_by_field_name("body"), source),
+                    docstring=(grammar.docstring(node, _text, source)
+                               if grammar.docstring else None),
                     parent=parent,
                 )
                 if parent is not None:
@@ -119,7 +103,7 @@ def definitions(tree, source: bytes) -> list[Definition]:
     return found
 
 
-def call_sites(tree, source: bytes) -> list[CallSite]:
+def call_sites(grammar: Grammar, tree, source: bytes) -> list[CallSite]:
     """Every call expression, with the identifier that names the callee.
 
     For `a.b.c(x)` that identifier is `c`, which is the position a SCIP
@@ -129,23 +113,21 @@ def call_sites(tree, source: bytes) -> list[CallSite]:
     sites: list[CallSite] = []
 
     def callee_name(node: Node) -> Node | None:
-        function = node.child_by_field_name("function")
+        function = node.child_by_field_name(grammar.callee_field)
         if function is None:
             return None
         if function.type == "identifier":
             return function
-        if function.type == "attribute":
-            return function.child_by_field_name("attribute")
+        member_field = grammar.member_fields.get(function.type)
+        if member_field is not None:
+            return function.child_by_field_name(member_field)
         return None
 
     def walk(node: Node, conditional: bool, loop: bool) -> None:
-        in_conditional = conditional or node.type in (
-            "if_statement", "conditional_expression", "case_clause")
-        in_loop = loop or node.type in (
-            "for_statement", "while_statement", "list_comprehension",
-            "set_comprehension", "dictionary_comprehension", "generator_expression")
+        in_conditional = conditional or node.type in grammar.conditional_nodes
+        in_loop = loop or node.type in grammar.loop_nodes
 
-        if node.type == "call":
+        if node.type == grammar.call_node:
             name = callee_name(node)
             if name is not None:
                 sites.append(CallSite(
@@ -163,60 +145,63 @@ def call_sites(tree, source: bytes) -> list[CallSite]:
     return sites
 
 
-def main_block_calls(tree, source: bytes) -> list[CallSite]:
-    """Calls made under `if __name__ == "__main__":`, at module level.
+def entry_calls(grammar: Grammar, tree, source: bytes) -> list[CallSite]:
+    """Calls that start the program, when the language marks them as such.
 
-    This is a door into the program, and the only signal that says so. Without
-    it the entry-point menu falls back to "nothing calls this", which on a
-    real project lists every test and every helper and never mentions main.
+    A door into the program is the one signal that makes the entry-point menu
+    a menu. Without it the fallback is "nothing calls this", which on a real
+    project lists every test and every helper and never mentions main.
     """
-    def is_main_guard(node: Node) -> bool:
-        condition = node.child_by_field_name("condition")
-        if condition is None or condition.type != "comparison_operator":
-            return False
-        text = _text(condition, source)
-        return "__name__" in text and "__main__" in text
-
-    for node in tree.root_node.children:
-        if node.type != "if_statement" or not is_main_guard(node):
-            continue
-        body = node.child_by_field_name("consequence")
-        if body is None:
-            continue
-        return call_sites_in(body, source)
-    return []
+    if grammar.entry_calls is None:
+        return []
+    return grammar.entry_calls(grammar, tree, source)
 
 
-def call_sites_in(node: Node, source: bytes) -> list[CallSite]:
+def entry_definitions(grammar: Grammar, tree, source: bytes) -> list[Definition]:
+    """Definitions that are themselves doors in, for languages that have them.
+
+    Go's `func main` is not a call anywhere - the runtime invokes it - so no
+    amount of looking at call sites will find it.
+    """
+    if grammar.entry_definitions is None:
+        return []
+    return grammar.entry_definitions(grammar, tree, source)
+
+
+def call_sites_in(grammar: Grammar, node: Node, source: bytes) -> list[CallSite]:
     """The calls inside one subtree, rather than the whole file."""
     holder = type("Holder", (), {"root_node": node})
-    return call_sites(holder, source)
+    return call_sites(grammar, holder, source)
 
 
-def highlight(tree, source: bytes, first_line: int, last_line: int):
+def highlight(grammar: Grammar, tree, source: bytes, first_line: int, last_line: int):
     """Token runs per line, in the shape the renderer already paints.
 
     Only non-plain runs are emitted, which is what keeps the payload small.
     """
     runs: dict[int, list[tuple[int, int, str]]] = {}
+    definition_nodes = grammar.callable_nodes | grammar.type_nodes
 
     def classify(node: Node) -> str | None:
-        if node.type in _TOKEN_CLASS:
-            return _TOKEN_CLASS[node.type]
-        if node.type in _KEYWORDS:
+        if node.type in grammar.token_classes:
+            return grammar.token_classes[node.type]
+        if node.type in grammar.keywords:
             return "kw"
         if node.type == "identifier":
             parent = node.parent
             if parent is None:
                 return None
-            if parent.type in _DEFINITION_NODES and \
-                    parent.child_by_field_name("name") == node:
+            if parent.type in definition_nodes and \
+                    parent.child_by_field_name(grammar.name_field) == node:
                 return "def"
-            if parent.type == "call" and parent.child_by_field_name("function") == node:
+            if parent.type == grammar.call_node and \
+                    parent.child_by_field_name(grammar.callee_field) == node:
                 return "call"
-            if parent.type == "attribute" and \
-                    parent.child_by_field_name("attribute") == node and \
-                    parent.parent is not None and parent.parent.type == "call":
+            member_field = grammar.member_fields.get(parent.type)
+            if member_field is not None and \
+                    parent.child_by_field_name(member_field) == node and \
+                    parent.parent is not None and \
+                    parent.parent.type == grammar.call_node:
                 return "call"
         return None
 

@@ -33,8 +33,8 @@ from ..graph.model import (
     validate,
 )
 from ..report import AnalysisReport
+from . import grammars, syntax
 from . import index as scip
-from . import syntax
 
 MAX_SOURCE_LINES = 400
 
@@ -152,6 +152,8 @@ def analyze(
     #: symbol -> the qualname of the definition it names.
     defines: dict[str, str] = {}
     module_of: dict[str, str] = {}
+    #: module id -> the separator its language nests namespaces with.
+    module_separator: dict[str, str] = {}
 
     by_confidence: dict[str, int] = {}
     call_records: list[tuple[str, str, CallSite]] = []
@@ -165,11 +167,14 @@ def analyze(
     # -- pass 1: what exists, and what each symbol names --------------------
     parsed_files: dict[str, tuple] = {}
     for doc in documents:
+        grammar = grammars.for_path(doc.path)
+        if grammar is None:
+            continue
         source_bytes = syntax.read(root / doc.path)
         if source_bytes is None:
             continue
-        tree = syntax.parse(source_bytes)
-        parsed_files[doc.path] = (tree, source_bytes)
+        tree = syntax.parse(grammar, source_bytes)
+        parsed_files[doc.path] = (tree, source_bytes, grammar)
 
         module = None
         for occ in doc.occurrences:
@@ -181,13 +186,15 @@ def analyze(
 
         if module not in nodes:
             nodes[module] = Node(id=module, kind=NodeKind.MODULE,
-                                 name=module.rsplit(".", 1)[-1], parent=None,
+                                 name=module.rsplit(grammar.namespace_separator, 1)[-1],
+                                 parent=None,
                                  location=Location(doc.path, 1, 1))
             parents[module] = None
+            module_separator[module] = grammar.namespace_separator
         module_of[doc.path] = module
 
         text = source_bytes.decode("utf-8", "replace").splitlines()
-        for definition in syntax.definitions(tree, source_bytes):
+        for definition in syntax.definitions(grammar, tree, source_bytes):
             symbol = resolved.get((doc.path, definition.name_line, definition.name_char))
             qualname = _qualname(symbol) if symbol else None
             if qualname is None:
@@ -201,12 +208,20 @@ def analyze(
             if symbol:
                 defines[symbol] = qualname
 
+            # Containment follows the qualified name, not the shape of the
+            # source. Go attaches a method to its type through a receiver and
+            # declares it at the top level, so nesting would put every method
+            # beside its type rather than inside it. The name already says
+            # where it belongs, and anything named but not yet built is
+            # created by the pass below.
             parent_id = module
             if definition.parent is not None:
                 parent_symbol = resolved.get(
                     (doc.path, definition.parent.name_line, definition.parent.name_char))
                 parent_id = (_qualname(parent_symbol) if parent_symbol else None) \
                     or qualname.rsplit(".", 1)[0]
+            elif qualname.startswith(f"{module}.") and qualname.count(".") > module.count(".") + 1:
+                parent_id = qualname.rsplit(".", 1)[0]
 
             body = None
             tokens = None
@@ -215,7 +230,7 @@ def analyze(
                 last = min(definition.line_end, definition.line_start + MAX_SOURCE_LINES - 1)
                 truncated = last < definition.line_end
                 body = "\n".join(text[definition.line_start - 1:last])
-                runs = syntax.highlight(tree, source_bytes,
+                runs = syntax.highlight(grammar, tree, source_bytes,
                                         definition.line_start - 1, last - 1)
                 tokens = tuple(
                     tuple(runs.get(line, ()))
@@ -237,8 +252,22 @@ def analyze(
             )
             parents[qualname] = parent_id
 
+    # A qualified name can imply a holder the file never declares - a symbol
+    # naming a type whose definition is elsewhere, or one this grammar does
+    # not produce a node for. Point those at the nearest holder that does
+    # exist rather than at a name nothing will draw.
+    for qualname, parent_id in list(parents.items()):
+        if parent_id is None or parent_id in nodes:
+            continue
+        cursor = parent_id
+        while cursor and cursor not in nodes and "." in cursor:
+            cursor = cursor.rsplit(".", 1)[0]
+        resolved_parent = cursor if cursor in nodes else None
+        parents[qualname] = resolved_parent
+        nodes[qualname] = replace(nodes[qualname], parent=resolved_parent)
+
     # -- pass 2: every call tree-sitter found, looked up in the index -------
-    for path, (tree, source_bytes) in parsed_files.items():
+    for path, (tree, source_bytes, grammar) in parsed_files.items():
         module = module_of.get(path)
         if module is None:
             continue
@@ -255,7 +284,7 @@ def analyze(
                     best = node_id
             return best
 
-        for site in syntax.call_sites(tree, source_bytes):
+        for site in syntax.call_sites(grammar, tree, source_bytes):
             symbol = resolved.get((path, site.name_line, site.name_char))
             if symbol is None:
                 by_confidence["unresolved"] = by_confidence.get("unresolved", 0) + 1
@@ -275,25 +304,37 @@ def analyze(
             )))
 
     # Packages, so a deep module chain still collapses the way the view expects.
+    # Split on the separator the language actually uses: a Go import path is
+    # slash-separated and begins with a domain, so splitting it on "." would
+    # invent a package called "github" holding everything.
     for module_id in [n.id for n in nodes.values() if n.kind is NodeKind.MODULE]:
-        parts = module_id.split(".")
+        sep = module_separator.get(module_id, ".")
+        parts = module_id.split(sep)
         for depth in range(1, len(parts)):
-            package = ".".join(parts[:depth])
+            package = sep.join(parts[:depth])
             if package not in nodes:
                 nodes[package] = Node(id=package, kind=NodeKind.PACKAGE,
                                       name=parts[depth - 1],
-                                      parent=".".join(parts[:depth - 1]) or None)
+                                      parent=sep.join(parts[:depth - 1]) or None)
         if len(parts) > 1:
-            nodes[module_id] = _reparent(nodes[module_id], ".".join(parts[:-1]))
+            nodes[module_id] = _reparent(nodes[module_id], sep.join(parts[:-1]))
 
     # -- doors into the program --------------------------------------------
     # Everything meaningful about an entry point comes from the extractor;
     # the graph layer only ever adds "nothing calls this" on its own. Leaving
     # these out is what makes the menu a list of every uncalled helper.
     hints: list[EntryHint] = []
-    for path, (tree, source_bytes) in parsed_files.items():
-        for site in syntax.main_block_calls(tree, source_bytes):
+    for path, (tree, source_bytes, grammar) in parsed_files.items():
+        # A door reached by calling it, as Python's main block does.
+        for site in syntax.entry_calls(grammar, tree, source_bytes):
             symbol = resolved.get((path, site.name_line, site.name_char))
+            target = defines.get(symbol) if symbol else None
+            if target:
+                hints.append(EntryHint(target, EntryReason.MAIN_BLOCK))
+        # A door that is a definition, as Go's `func main` is. Nothing calls
+        # it - the runtime does - so no call site will ever name it.
+        for definition in syntax.entry_definitions(grammar, tree, source_bytes):
+            symbol = resolved.get((path, definition.name_line, definition.name_char))
             target = defines.get(symbol) if symbol else None
             if target:
                 hints.append(EntryHint(target, EntryReason.MAIN_BLOCK))
