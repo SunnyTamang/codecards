@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
+from pathlib import Path
 from typing import Any
 
 
@@ -63,6 +64,16 @@ class Grammar:
     #: Import the tree-sitter binding only when this grammar is used, so a
     #: project in one language never needs the other's wheel installed.
     _module: str = ""
+
+    #: The indexer that produces a SCIP index for this language: the name it
+    #: writes into the index, what installs it, and what runs it. codecards
+    #: never runs these - an indexer executes project code to resolve it - so
+    #: they exist to be printed. Nothing goes here that has not been run and
+    #: read, because a command that does not work costs a reader more than no
+    #: command at all.
+    indexer_tool: str | None = None
+    indexer_install: str | None = None
+    indexer_command: str | None = None
 
     #: The prose attached to a definition. A Python docstring is the first
     #: statement inside the body; a Go doc comment is a line above the
@@ -214,6 +225,8 @@ PYTHON = Grammar(
     },
     keywords=_PYTHON_KEYWORDS,
     _module="tree_sitter_python",
+    indexer_tool="scip-python",
+    indexer_command="npx @sourcegraph/scip-python index --cwd {root} --output {output}",
     docstring=_python_docstring,
     entry_calls=_python_main_block,
 )
@@ -247,6 +260,16 @@ GO = Grammar(
     },
     keywords=_GO_KEYWORDS,
     _module="tree_sitter_go",
+    indexer_tool="scip-go",
+    indexer_install="go install github.com/scip-code/scip-go/cmd/scip-go@latest",
+    # Two things this spells out rather than assumes. `go install` puts the
+    # binary in GOPATH/bin, which is not on PATH unless someone put it there -
+    # so naming the tool alone earns a "command not found" from anyone who
+    # just followed the line above. And scip-go resolves package patterns
+    # rather than paths, so it has to run from the project root.
+    indexer_command=(
+        'cd {root} && "$(go env GOPATH)/bin/scip-go" index ./... --output {output}'
+    ),
     docstring=_go_doc_comment,
     entry_definitions=_go_main_function,
 )
@@ -260,3 +283,29 @@ def for_path(path: str) -> Grammar | None:
         if any(path.endswith(suffix) for suffix in grammar.suffixes):
             return grammar
     return None
+
+
+def for_tree(root: Path, *, limit: int = 4000) -> list[tuple[Grammar, int]]:
+    """Which languages a directory holds, and how many files of each.
+
+    Used to answer "there is no Python here, so what did you mean?". Skips
+    hidden directories and vendored trees, which otherwise answer with a
+    virtualenv or a node_modules rather than with the project.
+    """
+    skip = {"node_modules", "vendor", "venv", "target", "build", "dist"}
+    counts: dict[str, int] = {}
+    seen = 0
+    for path in Path(root).rglob("*"):
+        if seen >= limit:
+            break
+        if not path.is_file():
+            continue
+        if any(part.startswith(".") or part in skip for part in path.parts):
+            continue
+        grammar = for_path(path.name)
+        if grammar is not None:
+            counts[grammar.name] = counts.get(grammar.name, 0) + 1
+            seen += 1
+    by_name = {g.name: g for g in ALL}
+    return sorted(((by_name[n], c) for n, c in counts.items()),
+                  key=lambda pair: -pair[1])

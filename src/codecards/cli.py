@@ -68,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         from .scip import analyze as analyze_scip  # noqa: PLC0415
         if not args.scip.exists():
             print(f"codecards: no such index: {args.scip}", file=sys.stderr)
+            _suggest_an_index(args.paths, output=args.scip)
             return 1
         try:
             graph, report = analyze_scip(
@@ -88,11 +89,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if not graph.nodes:
-        print(
-            "codecards: no Python files found in "
-            + ", ".join(str(p) for p in args.paths),
-            file=sys.stderr,
-        )
+        where = ", ".join(str(p) for p in args.paths)
+        print(f"codecards: no Python files found in {where}", file=sys.stderr)
+        _suggest_an_index(args.paths)
         return 1
 
     if not graph.edges:
@@ -125,6 +124,43 @@ def main(argv: list[str] | None = None) -> int:
 #: Enough names to recognise what changed without burying the instruction
 #: that follows them.
 STALE_FILES_SHOWN = 5
+
+
+def _suggest_an_index(paths, output: Path | None = None) -> None:
+    """Say what is actually in the directory, and how to make it readable.
+
+    "No Python files found" is true of a Go project and useless to the person
+    holding one: it reads as an empty directory rather than as a language this
+    tool reaches through an index. The two commands below are the entire
+    distance between a dead end and a graph, and nothing else in the program
+    was telling anyone about them.
+    """
+    from .scip import grammars  # noqa: PLC0415 - the default path never needs this
+
+    found: list[tuple] = []
+    for path in paths:
+        if path.is_dir():
+            found = grammars.for_tree(path)
+            if found:
+                break
+    for grammar, count in found:
+        if grammar.indexer_command is None or grammar.name == "python":
+            continue
+        target = output or Path("index.scip")
+        print(
+            f"\n  {count} {grammar.name.title()} file{'' if count == 1 else 's'} are"
+            f" here. {grammar.name.title()} is read through a SCIP index:\n",
+            file=sys.stderr,
+        )
+        if grammar.indexer_install:
+            print(f"    {grammar.indexer_install}", file=sys.stderr)
+        print(
+            "    "
+            + grammar.indexer_command.format(root=paths[0], output=target)
+            + f"\n\n  then: codecards {paths[0]} --scip {target}",
+            file=sys.stderr,
+        )
+        return
 
 
 def _warn_if_stale(report) -> None:
