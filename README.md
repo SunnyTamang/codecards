@@ -7,7 +7,7 @@ end. Built for the moment you open an unfamiliar repo and need a mental model
 fast.
 
 Python is read directly and needs nothing. Go is read through a
-[SCIP](https://github.com/sourcegraph/scip) index you build first - see
+[SCIP](https://github.com/scip-code/scip) index you build first - see
 [Go](#go).
 
 No server, no extension, no account. One file you can open offline, commit, or
