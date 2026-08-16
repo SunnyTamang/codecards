@@ -18,7 +18,8 @@ LARGE_GRAPH_THRESHOLD = 5000
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codecards",
-        description="Static call-graph cards and flow walkthroughs for Python codebases.",
+        description="Static call-graph cards and flow walkthroughs. Python is read "
+                    "directly; Go needs a SCIP index passed to --scip.",
     )
     parser.add_argument("paths", nargs="+", type=Path, metavar="PATH",
                         help="files or directories to analyse")
@@ -39,9 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help="analyse only, do not write an HTML file")
     parser.add_argument("--scip", type=Path, metavar="INDEX",
                         help="resolve calls from a SCIP index rather than by "
-                             "reading the source. Experimental: you build the "
-                             "index first, and for Python it gives much the "
-                             "same graph as the default")
+                             "reading the source. Required for Go. Adds calls "
+                             "made through an interface, which reading source "
+                             "cannot resolve. You build the index first")
     parser.add_argument("--version", action="version", version=f"codecards {__version__}")
     return parser
 
