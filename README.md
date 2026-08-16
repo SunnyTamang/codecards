@@ -1,10 +1,14 @@
 # codecards
 
-Read a Python codebase and get one interactive HTML file: functions as cards
-that become their real source as you zoom in, calls as directed edges that
-leave from the line making the call, and a player that walks an entry point end
-to end. Built for the moment you open an unfamiliar repo and need a mental
-model fast.
+Read a codebase and get one interactive HTML file: functions as cards that
+become their real source as you zoom in, calls as directed edges that leave
+from the line making the call, and a player that walks an entry point end to
+end. Built for the moment you open an unfamiliar repo and need a mental model
+fast.
+
+Python is read directly and needs nothing. Go is read through a
+[SCIP](https://github.com/sourcegraph/scip) index you build first - see
+[Go](#go).
 
 No server, no extension, no account. One file you can open offline, commit, or
 hang off a pull request.
@@ -29,7 +33,12 @@ cd codecards
 pip install .
 ```
 
-Requires Python 3.10 or newer. The analyzer has no runtime dependencies.
+Requires Python 3.10 or newer. Reading Python needs no runtime dependencies at
+all. Reading Go needs the parsers, which are an optional extra:
+
+```bash
+pip install "codecards[scip] @ git+https://github.com/SunnyTamang/codecards.git"
+```
 
 ## Use
 
@@ -49,7 +58,49 @@ request.
 | `--max-depth N` | walkthrough depth cap (default: 15) |
 | `--open` | open the result in your browser |
 | `--quiet` | suppress the summary report |
+| `--scip INDEX` | resolve calls from a SCIP index; required for Go |
 | `--version` | print the version and exit |
+
+## Go
+
+Go is resolved from a SCIP index rather than by reading the source. That means
+one extra step before the first graph, and it buys something reading source
+cannot do at all.
+
+Install the indexer, build an index, then point codecards at it:
+
+```bash
+go install github.com/scip-code/scip-go/cmd/scip-go@latest
+cd ./your-project && "$(go env GOPATH)/bin/scip-go" index ./... --output index.scip
+codecards ./your-project --scip index.scip -o graph.html --open
+```
+
+The quoted `$(go env GOPATH)/bin` is deliberate: `go install` writes there, and
+that directory is not on `PATH` unless you put it there yourself.
+
+If you forget any of this, codecards tells you. Run it on a Go project with no
+index and it counts the Go files it found and prints these commands.
+
+**What the index buys.** A call through an interface has no single answer in
+the source - `p.renderer.flush()` runs whichever type is behind `renderer` that
+day. An index knows every type satisfying the interface, so the call is drawn
+to the interface method as `resolved`, and to each implementation as
+`ambiguous`: at runtime it is one of these, and here they are by name. No
+amount of reading the source can produce that list.
+
+**Keeping it honest.** An index describes the code as it was when the indexer
+ran. If any file it covers has been edited since, codecards says so, names the
+files, prints the command that rebuilds it, and draws the graph anyway. The
+same notice is recorded in the page, so it travels with a graph you share.
+
+Run the indexer from the environment the project builds in. An indexer resolves
+imports through the toolchain it can see, and outside that environment it exits
+successfully having resolved far less.
+
+`--scip` also works on Python, where it needs
+[scip-python](https://github.com/sourcegraph/scip-python). It is not the
+recommended path there: the built-in resolver produces nearly the same graph
+with no setup.
 
 ## Reading the graph
 
@@ -152,6 +203,10 @@ other way and guessing would contradict it:
   call skips
 - a method call on `self` after `self` has been reassigned in that body, since
   it no longer names the instance the method was called on
+
+One of these is answerable with an index rather than by reading source. A call
+through an interface or a protocol resolves to every type implementing it,
+marked `ambiguous` - see [Go](#go).
 
 The walkthrough ordering is lexical, not executional: a call inside an `if`
 still gets a step. Steps sitting inside a conditional or a loop are labelled as
