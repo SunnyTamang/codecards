@@ -160,3 +160,50 @@ def test_an_index_that_does_not_name_its_tool_says_nothing(tmp_path):
     path = tmp_path / "index.scip"
     path.write_bytes(document("m.py", occurrence(1, 0, 3, SYMBOL)))
     assert scip.read(path).tool is None
+
+
+def relationship(target: str, *, implementation: bool) -> bytes:
+    body = delimited(1, target.encode())
+    if implementation:
+        body += tag(3, 0) + varint(1)
+    return delimited(4, body)
+
+
+def symbol_information(symbol: str, *relationships: bytes) -> bytes:
+    return delimited(3, delimited(1, symbol.encode()) + b"".join(relationships))
+
+
+IFACE = "scip-go gomod m v `pkg`/renderer#flush."
+IMPL = "scip-go gomod m v `pkg`/nilRenderer#flush()."
+
+
+def test_which_types_satisfy_an_interface_is_read(tmp_path):
+    """The one thing in an index that reading source cannot reproduce. It takes
+    a type checker to know that this method satisfies that interface, and it is
+    what turns a call through an interface from a dead end into a fan-out."""
+    path = tmp_path / "index.scip"
+    path.write_bytes(delimited(2, delimited(1, b"r.go")
+                               + symbol_information(IMPL,
+                                                    relationship(IFACE, implementation=True))))
+    assert scip.read(path).implementations == {IFACE: (IMPL,)}
+
+
+def test_a_relationship_that_is_not_an_implementation_is_ignored(tmp_path):
+    """A Relationship also spells reference, definition and type-definition.
+    Only implementation says what might run in place of what."""
+    path = tmp_path / "index.scip"
+    path.write_bytes(delimited(2, delimited(1, b"r.go")
+                               + symbol_information(IMPL,
+                                                    relationship(IFACE, implementation=False))))
+    assert scip.read(path).implementations == {}
+
+
+def test_documentation_is_not_mistaken_for_a_relationship(tmp_path):
+    """Documentation is field 3 and relationships field 4. Reading 3 as the
+    relationship list finds prose where symbols should be, and silently
+    reports that nothing implements anything."""
+    path = tmp_path / "index.scip"
+    prose = delimited(3, delimited(1, IMPL.encode())
+                      + delimited(3, b"nilRenderer implements renderer."))
+    path.write_bytes(delimited(2, delimited(1, b"r.go") + prose))
+    assert scip.read(path).implementations == {}

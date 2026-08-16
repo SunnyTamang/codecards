@@ -156,7 +156,7 @@ def analyze(
     module_separator: dict[str, str] = {}
 
     by_confidence: dict[str, int] = {}
-    call_records: list[tuple[str, str, CallSite]] = []
+    call_records: list[tuple[str, str, CallSite, Confidence]] = []
 
     for doc in documents:
         for occ in doc.occurrences:
@@ -296,12 +296,25 @@ def analyze(
             source_id = enclosing(site.line)
             if source_id == target:
                 continue
-            by_confidence["resolved"] = by_confidence.get("resolved", 0) + 1
-            call_records.append((source_id, target, CallSite(
+            call_site = CallSite(
                 line=site.line,
                 in_conditional=site.in_conditional,
                 in_loop=site.in_loop,
-            )))
+            )
+            by_confidence["resolved"] = by_confidence.get("resolved", 0) + 1
+            call_records.append((source_id, target, call_site, Confidence.RESOLVED))
+
+            # A call through an interface resolves to the interface's own
+            # method, which is a signature with nothing behind it. What runs
+            # is one of the types satisfying it, and the index is the only
+            # thing that knows which those are - no reading of the source can
+            # work it out. Naming them all is what `ambiguous` already means.
+            for implementation in index.implementations.get(symbol, ()):
+                runs = defines.get(implementation)
+                if runs is None or runs in (target, source_id):
+                    continue
+                by_confidence["ambiguous"] = by_confidence.get("ambiguous", 0) + 1
+                call_records.append((source_id, runs, call_site, Confidence.AMBIGUOUS))
 
     # Packages, so a deep module chain still collapses the way the view expects.
     # Split on the separator the language actually uses: a Go import path is
@@ -345,8 +358,8 @@ def analyze(
                 and node.location and _looks_like_a_test_file(node.location.file):
             hints.append(EntryHint(node.id, EntryReason.TEST))
 
-    merged: dict[tuple[str, str], list[CallSite]] = {}
-    for source_id, target, site in call_records:
+    merged: dict[tuple[str, str, Confidence], list[CallSite]] = {}
+    for source_id, target, site, confidence in call_records:
         # A call written at module scope encloses to the module, which does not
         # call anything - the interpreter runs it on import. The ones that
         # matter are already carried as MAIN_BLOCK entry hints above, so an
@@ -355,11 +368,12 @@ def analyze(
         if nodes.get(source_id) is None or nodes[source_id].kind not in CALLABLE_KINDS:
             continue
         if target in nodes:
-            merged.setdefault((source_id, target), []).append(site)
+            merged.setdefault((source_id, target, confidence), []).append(site)
 
     edges = [
-        Edge(source=s, target=t, confidence=Confidence.RESOLVED, call_sites=tuple(sites))
-        for (s, t), sites in sorted(merged.items())
+        Edge(source=s, target=t, confidence=confidence, call_sites=tuple(sites))
+        for (s, t, confidence), sites in sorted(
+            merged.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2].value))
     ]
 
     stale = stale_sources(root, Path(index_path), (d.path for d in documents))

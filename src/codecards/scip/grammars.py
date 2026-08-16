@@ -224,9 +224,14 @@ GO = Grammar(
     namespace_separator="/",
     # A type_spec is the `Name struct{...}` inside `type ( ... )`, which is
     # where the name lives whether or not the declaration is parenthesised.
-    callable_nodes=frozenset({"function_declaration", "method_declaration"}),
+    # A method_elem is a method named inside an interface body. It has no
+    # implementation, but a call through the interface resolves to it, so
+    # without a card here that edge lands on nothing and is dropped - which
+    # silently loses every polymorphic call in the program.
+    callable_nodes=frozenset({
+        "function_declaration", "method_declaration", "method_elem"}),
     type_nodes=frozenset({"type_spec"}),
-    method_nodes=frozenset({"method_declaration"}),
+    method_nodes=frozenset({"method_declaration", "method_elem"}),
     call_node="call_expression",
     member_fields={"selector_expression": "field"},
     conditional_nodes=frozenset({

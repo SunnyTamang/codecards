@@ -15,6 +15,7 @@ the occurrence sits on one line. Lines and characters are zero based.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,6 +54,10 @@ class Index:
     #: The indexer that wrote this file, when it says. Used to tell a reader
     #: holding a stale index which command would rebuild it.
     tool: str | None = None
+    #: interface method symbol -> the concrete methods implementing it. The
+    #: part of an index no reading of source can reproduce: it takes a type
+    #: checker to know that this method satisfies that interface.
+    implementations: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
 
 
 def _varint(buf: bytes, i: int) -> tuple[int, int]:
@@ -103,6 +108,8 @@ def read(path: Path) -> Index:
     documents: list[Document] = []
     project_root = ""
     tool: str | None = None
+    #: interface method symbol -> the concrete methods that satisfy it.
+    implementations: dict[str, list[str]] = {}
 
     for number, _wire, payload in _fields(raw):
         if number == 1 and isinstance(payload, bytes):
@@ -123,6 +130,30 @@ def read(path: Path) -> Index:
         for dn, dwire, dpayload in _fields(payload):
             if dn == 1 and dwire == 2:
                 doc_path = dpayload.decode("utf-8", "replace")
+            elif dn == 3 and dwire == 2:
+                # SymbolInformation. Its relationships are the one thing in an
+                # index that reading source cannot reproduce: which concrete
+                # methods satisfy an interface. Field 3 here is documentation,
+                # which is why walking it as relationships finds only prose.
+                owner = ""
+                implements: list[str] = []
+                for sn, swire, spayload in _fields(dpayload):
+                    if sn == 1 and swire == 2:
+                        owner = spayload.decode("utf-8", "replace")
+                    elif sn == 4 and swire == 2:
+                        target = ""
+                        is_implementation = False
+                        for rn, rwire, rpayload in _fields(spayload):
+                            if rn == 1 and rwire == 2:
+                                target = rpayload.decode("utf-8", "replace")
+                            elif rn == 3 and rwire == 0:
+                                is_implementation = bool(rpayload)
+                        if target and is_implementation:
+                            implements.append(target)
+                for target in implements:
+                    # Recorded the way it will be asked: given the method a
+                    # call resolved to, who might actually run.
+                    implementations.setdefault(target, []).append(owner)
             elif dn == 2 and dwire == 2:
                 span: list[int] = []
                 symbol = ""
@@ -148,7 +179,12 @@ def read(path: Path) -> Index:
 
         documents.append(Document(path=doc_path, occurrences=tuple(occurrences)))
 
-    return Index(project_root=project_root, documents=tuple(documents), tool=tool)
+    return Index(
+        project_root=project_root,
+        documents=tuple(documents),
+        tool=tool,
+        implementations={k: tuple(sorted(set(v))) for k, v in implementations.items()},
+    )
 
 
 def is_empty(documents) -> bool:
