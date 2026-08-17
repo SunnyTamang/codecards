@@ -33,6 +33,54 @@ def test_unchecking_inferred_hides_inferred_edges(graph_page):
     assert graph_page.locator("#edges path.inferred").count() == 0
 
 
+def test_a_small_graph_is_not_trimmed(graph_page):
+    """Auto only exists to rescue a canvas that has stopped reading as a
+    graph. On anything small it must do nothing at all, or it becomes a
+    filter nobody asked for."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    assert graph_page.evaluate("CC.view.state.edgesWithheld") == 0
+    assert graph_page.evaluate("CC.view.state.edgeFloor") == 1
+
+
+def test_raising_the_traffic_floor_hides_the_quiet_edges(graph_page):
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    before = graph_page.locator("#edges path.resolved, #edges path.inferred").count()
+
+    graph_page.select_option("#edge-traffic", "2")
+    graph_page.wait_for_function("CC.view.ready === true")
+    after = graph_page.locator("#edges path.resolved, #edges path.inferred").count()
+
+    assert after < before
+    assert graph_page.evaluate("CC.view.state.edgesWithheld") == before - after
+
+
+def test_what_is_withheld_is_said_out_loud(graph_page):
+    """An empty stretch of canvas has to keep meaning "no relationship", so
+    anything held back is named where it can be read without opening a panel."""
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.select_option("#edge-traffic", "5")
+    graph_page.wait_for_function("CC.view.state.edgesWithheld > 0")
+    text = graph_page.locator("#statusbar").inner_text()
+    assert "hidden" in text
+    assert "5+ calls" in text
+
+
+def test_going_back_to_all_restores_every_edge(graph_page):
+    graph_page.evaluate("CC.view.layout(new Set())")
+    graph_page.wait_for_function("CC.view.ready === true")
+    before = graph_page.locator("#edges path.resolved, #edges path.inferred").count()
+    graph_page.select_option("#edge-traffic", "5")
+    graph_page.wait_for_function("CC.view.ready === true")
+    graph_page.select_option("#edge-traffic", "1")
+    graph_page.wait_for_function("CC.view.ready === true")
+    assert graph_page.locator(
+        "#edges path.resolved, #edges path.inferred").count() == before
+    assert graph_page.evaluate("CC.view.state.edgesWithheld") == 0
+
+
 def test_search_selects_a_matching_node(graph_page):
     graph_page.fill("#search", "load_config")
     graph_page.keyboard.press("Enter")

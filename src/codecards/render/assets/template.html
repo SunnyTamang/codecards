@@ -113,6 +113,17 @@
       <label class="toggle"><input type="checkbox" id="show-ambiguous">Ambiguous</label>
       <label class="toggle" title="Show __init__, __eq__ and other special methods">
         <input type="checkbox" id="show-dunders">Dunders</label>
+      <label class="toggle" id="traffic-control"
+             title="Most edges in a large graph carry a single call. Drawing only the busier ones keeps the picture readable - the status bar says how many are being held back.">
+        Calls
+        <select id="edge-traffic" aria-label="Minimum calls per edge">
+          <option value="auto" selected>Auto</option>
+          <option value="1">All</option>
+          <option value="2">2 or more</option>
+          <option value="3">3 or more</option>
+          <option value="5">5 or more</option>
+        </select>
+      </label>
     </div>
 
     <label class="toggle range" id="focus-control" hidden>

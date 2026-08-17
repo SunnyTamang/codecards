@@ -29,6 +29,7 @@ CC.controls = (function () {
     ['edge resolved', 'solid line', 'the target is certain'],
     ['edge inferred', 'dashed line', 'one definition has that name, so a guess'],
     ['edge ambiguous', 'faint dashes', 'several candidates, none trusted, hidden by default'],
+    ['weight', '7', 'how many calls this one line stands for'],
     ['chip entry', 'entry', 'a way into the program'],
     ['chip unused', 'unused', 'nothing calls it, and the language does not either'],
     ['badge', '\u2193 \u2191 \u21ba', 'calls in, calls out, calls that stay inside'],
@@ -62,9 +63,16 @@ CC.controls = (function () {
     const stats = CC.view.state.data.stats;
     const skipped = stats.skipped.length;
     const stale = (stats.stale || []).length;
+    const withheld = CC.view.state.edgesWithheld || 0;
     status(
       stats.callableCount + ' callables, ' + stats.edgeCount + ' edges, ' +
       Math.round(stats.resolutionRate * 100) + '% resolved' +
+      // Whatever the traffic filter is holding back is said here rather than
+      // left to be inferred. An empty stretch of canvas has to mean "no
+      // relationship", and it stops meaning that the moment something is
+      // withheld without saying so.
+      (withheld ? ' - ' + withheld + ' quiet edge' + (withheld === 1 ? '' : 's') +
+        ' hidden, showing ' + CC.view.state.edgeFloor + '+ calls' : '') +
       (skipped ? ', ' + skipped + ' file' + (skipped === 1 ? '' : 's') + ' skipped' : '') +
       // Sits in the status bar rather than the panel alone: it qualifies
       // everything on the canvas, so it should be readable without opening
@@ -201,6 +209,11 @@ CC.controls = (function () {
       ['Unresolved', (stats.byConfidence.unresolved || 0) + ' (not drawn)'],
       ['Resolution rate', Math.round(stats.resolutionRate * 100) + '%'],
     ];
+    if (CC.view.state.edgesWithheld) {
+      rows.push(['Quiet edges hidden',
+                 CC.view.state.edgesWithheld + ' carrying fewer than ' +
+                 CC.view.state.edgeFloor + ' calls']);
+    }
     rows.forEach(function (row) {
       const tr = document.createElement('tr');
       const label = document.createElement('td');
@@ -282,6 +295,10 @@ CC.controls = (function () {
     });
     document.getElementById('show-dunders').addEventListener('change', function (event) {
       CC.view.setShowDunders(event.target.checked);
+    });
+    document.getElementById('edge-traffic').addEventListener('change', function (event) {
+      const raw = event.target.value;
+      CC.view.setWeightFloor(raw === 'auto' ? null : Number(raw)).then(defaultStatus);
     });
     document.getElementById('focus-hops').addEventListener('input', function (event) {
       document.getElementById('focus-hops-value').textContent = event.target.value;

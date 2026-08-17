@@ -24,9 +24,42 @@ CC.view = (function () {
   let selectedId = null;
   let tierFilter = new Set(['resolved', 'inferred']);
 
+  // How many call sites an aggregate edge must carry to be drawn. 1 draws
+  // everything. `null` lets the graph decide: most edges in a large project
+  // are a single call, and on bubbletea 76% of the drawn edges carry one
+  // call between them and 22% of the traffic, so the ink is spent almost
+  // entirely on the long tail.
+  //
+  // This hides real dependencies, which is a different thing from hiding
+  // uncertain ones. A single call from A to B is still a fact. So whatever
+  // this withholds is counted and said out loud in the status bar - the
+  // reader is never left to infer that an empty patch of canvas means no
+  // relationship.
+  let weightFloor = null;
+
+  //: Above this many aggregate edges the canvas stops reading as a graph.
+  const AUTO_LIMIT = 120;
+
+  //: Tried in order until the count falls under AUTO_LIMIT.
+  const FLOORS = [1, 2, 3, 5, 10];
+
   function setTierFilter(tiers) {
     tierFilter = new Set(tiers);
     return layout(state.collapsed);
+  }
+
+  function setWeightFloor(floor) {
+    weightFloor = floor;
+    return layout(state.collapsed);
+  }
+
+  function chooseFloor(edges) {
+    if (weightFloor !== null) return weightFloor;
+    for (let i = 0; i < FLOORS.length; i += 1) {
+      const kept = edges.filter(function (e) { return e.weight >= FLOORS[i]; });
+      if (kept.length <= AUTO_LIMIT) return FLOORS[i];
+    }
+    return FLOORS[FLOORS.length - 1];
   }
 
   function drawnEdges() {
@@ -510,8 +543,14 @@ CC.view = (function () {
   function layout(collapsed, options) {
     state.collapsed = collapsed;
     state.visible = computeVisible(collapsed);
-    state.edges = CC.collapse.aggregate(drawnEdges(), state.data.parentIndex,
-                                        state.visible, collapsed);
+    const aggregated = CC.collapse.aggregate(drawnEdges(), state.data.parentIndex,
+                                             state.visible, collapsed);
+    // Weight is a property of the aggregate, not of any one call, so this
+    // cannot be folded into drawnEdges() above.
+    const floor = chooseFloor(aggregated);
+    state.edges = aggregated.filter(function (edge) { return edge.weight >= floor; });
+    state.edgeFloor = floor;
+    state.edgesWithheld = aggregated.length - state.edges.length;
     state.internalCounts = CC.collapse.internalCounts(
       drawnEdges(), state.data.parentIndex, state.visible, collapsed);
 
@@ -596,6 +635,7 @@ CC.view = (function () {
     selected: selected,
     deselect: deselect,
     setTierFilter: setTierFilter,
+    setWeightFloor: setWeightFloor,
     setShowDunders: setShowDunders,
     movableUnder: movableUnder,
     isDrawnContainer: isDrawnContainer,
