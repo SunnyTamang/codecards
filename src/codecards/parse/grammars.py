@@ -75,6 +75,22 @@ class Grammar:
     indexer_install: str | None = None
     indexer_command: str | None = None
 
+    #: The language server that resolves this language, and what installs it.
+    #: Unlike an indexer, which codecards only ever prints for someone else to
+    #: run, this is a process codecards starts itself - so it is looked up on
+    #: PATH rather than assumed, and its absence is a reason to fall back
+    #: rather than an error.
+    #:
+    #: Only servers that answer `textDocument/definition` usefully belong
+    #: here. pylsp is deliberately absent: it advertises neither call
+    #: hierarchy nor type definitions, so it would resolve less than the
+    #: tree-sitter tier while looking authoritative.
+    lsp_command: tuple[str, ...] = ()
+    lsp_install: str | None = None
+
+    #: What a server expects this language to be called in a didOpen.
+    language_id: str = ""
+
     #: The prose attached to a definition. A Python docstring is the first
     #: statement inside the body; a Go doc comment is a line above the
     #: declaration. Same idea, no shared shape - hence a function.
@@ -253,6 +269,9 @@ PYTHON = Grammar(
     _module="tree_sitter_python",
     indexer_tool="scip-python",
     indexer_command="npx @sourcegraph/scip-python index --cwd {root} --output {output}",
+    lsp_command=("pyright-langserver", "--stdio"),
+    lsp_install="pip install pyright",
+    language_id="python",
     docstring=_python_docstring,
     entry_calls=_python_main_block,
 )
@@ -296,6 +315,9 @@ GO = Grammar(
     indexer_command=(
         'cd {root} && "$(go env GOPATH)/bin/scip-go" index ./... --output {output}'
     ),
+    lsp_command=("gopls",),
+    lsp_install="go install golang.org/x/tools/gopls@latest",
+    language_id="go",
     docstring=_go_doc_comment,
     entry_definitions=_go_main_function,
     receiver_type=_go_receiver_type,

@@ -43,6 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
                              "reading the source. Required for Go. Adds calls "
                              "made through an interface, which reading source "
                              "cannot resolve. You build the index first")
+    parser.add_argument("--lsp", action="store_true",
+                        help="resolve calls by asking a language server, which "
+                             "codecards starts itself. Needs the server "
+                             "installed but no index built, and never goes "
+                             "stale. Resolves more than either other path")
     parser.add_argument("--version", action="version", version=f"codecards {__version__}")
     return parser
 
@@ -62,7 +67,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if args.scip:
+    if args.lsp:
+        # Imported here so the default path never needs tree-sitter installed.
+        from .lsp import ServerUnusable  # noqa: PLC0415
+        from .lsp import analyze as analyze_lsp  # noqa: PLC0415
+        try:
+            graph, report = analyze_lsp(
+                roots=args.paths, embed_source=not args.no_source)
+        except ServerUnusable as exc:
+            print(f"codecards: {exc}", file=sys.stderr)
+            return 1
+    elif args.scip:
         # Imported here so the default path never needs tree-sitter installed.
         from .scip import IndexUnusable  # noqa: PLC0415
         from .scip import analyze as analyze_scip  # noqa: PLC0415
