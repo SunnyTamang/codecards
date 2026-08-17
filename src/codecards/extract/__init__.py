@@ -151,11 +151,28 @@ def _is_dunder(name: str) -> bool:
 
 
 def _is_implicitly_called(definition) -> bool:
+    """Whether something reaches this without a call site anyone can see.
+
+    Three ways that happens, and all of them mean the same thing for the
+    `unused` badge: a reference exists, so this is not dead code.
+
+    A dunder or a property is invoked by the language itself. Anything else
+    carrying a decorator was handed to that decorator at import time - a
+    registry files it into a table, a framework binds it to a route - and a
+    decorator receives a function rather than calling it, which is a
+    reference all the same.
+
+    Only decorators that describe how a callable behaves are excluded, since
+    `@staticmethod` says nothing about who reaches it.
+    """
     if _is_dunder(definition.name):
         return True
-    return any(
-        d.rsplit(".", 1)[-1] in _IMPLICIT_DECORATORS for d in definition.decorators
-    )
+    for decorator in definition.decorators:
+        if decorator.rsplit(".", 1)[-1] in _IMPLICIT_DECORATORS:
+            return True
+        if not _is_behaviour_decorator(decorator):
+            return True
+    return False
 
 
 def _add_definitions(graph: CodeGraph, table: SymbolTable, embed_source: bool) -> None:

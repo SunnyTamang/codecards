@@ -329,6 +329,59 @@ def test_special_methods_are_not_reported_as_dead_code(tmp_path):
     assert "m.H.size" not in flagged
 
 
+def test_a_function_handed_to_an_in_project_registry_is_not_dead(tmp_path):
+    """A decorator does not call the function, it receives it.
+
+    `unused` asks whether anything references a callable, and a decorator is
+    a reference. The registry pattern - a decorator defined in the project
+    that files functions into a table something else dispatches through - is
+    the commonest shape of this, and it used to brand every registered
+    function dead code while the registration was invisible.
+
+    Not an entry point either: the dispatch is reached from main, so this is
+    a leaf the program arrives at, not a door it starts from.
+    """
+    root = project(tmp_path, {
+        "reg.py": (
+            "CHECKS = {}\n"
+            "\n"
+            "def register(name):\n"
+            "    def bind(function):\n"
+            "        CHECKS[name] = function\n"
+            "        return function\n"
+            "    return bind\n"
+        ),
+        "checks.py": (
+            "from reg import register\n"
+            "\n"
+            "@register('length')\n"
+            "def check_length(lines):\n"
+            "    return len(lines)\n"
+        ),
+    })
+    graph, _ = analyze([root])
+    checker = graph.nodes["checks.check_length"]
+    assert checker.implicitly_called is True
+    assert "checks.check_length" not in {h.node_id for h in graph.entry_hints}
+
+
+def test_an_external_decorator_is_still_a_door(tmp_path):
+    """The registry exemption must not swallow the framework case: a route
+    has no caller anywhere and is genuinely where the program starts."""
+    root = project(tmp_path, {"m.py": (
+        "import flask\n"
+        "\n"
+        "app = flask.Flask(__name__)\n"
+        "\n"
+        "@app.route('/')\n"
+        "def index():\n"
+        "    return 'hi'\n"
+    )})
+    graph, _ = analyze([root])
+    reasons = {h.node_id: h.reason for h in graph.entry_hints}
+    assert reasons.get("m.index") is EntryReason.DECORATED
+
+
 def test_a_plain_uncalled_function_is_still_reported(tmp_path):
     """The exemption must not swallow genuine dead code."""
     root = project(tmp_path, {"m.py": "def nobody_calls_me():\n    pass\n"})
