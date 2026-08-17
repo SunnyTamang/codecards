@@ -99,6 +99,9 @@ def analyze(
     nodes: dict[str, Node] = {}
     #: simple name -> the qualnames defining it, for the name match below.
     by_name: dict[str, list[str]] = {}
+    #: module id -> the grammar that named it, since only the grammar knows
+    #: what separates one level of its namespace from the next.
+    module_grammars: dict[str, Grammar] = {}
     parsed: list[tuple] = []
 
     # -- pass 1: what exists ------------------------------------------------
@@ -112,10 +115,13 @@ def analyze(
         parsed.append((tree, source_bytes, grammar, module, relative))
 
         if module and module not in nodes:
+            separator = grammar.namespace_separator
+            holder, _, leaf = module.rpartition(separator)
             nodes[module] = Node(
                 id=module, kind=NodeKind.MODULE,
-                name=module.rsplit(grammar.namespace_separator, 1)[-1],
-                parent=None, location=Location(relative, 1, 1))
+                name=leaf or module, parent=holder or None,
+                location=Location(relative, 1, 1))
+            module_grammars[module] = grammar
 
         text = source_bytes.decode("utf-8", "replace").splitlines()
         for definition in syntax.definitions(grammar, tree, source_bytes):
@@ -153,6 +159,7 @@ def analyze(
             if definition.kind != "class":
                 by_name.setdefault(definition.name, []).append(qualname)
 
+    _add_package_ancestors(nodes, module_grammars)
     _add_missing_holders(nodes)
 
     # -- pass 2: calls, matched by name and never trusted -------------------
@@ -241,6 +248,30 @@ def _holder(definition, grammar: Grammar, source: bytes, module: str) -> str:
         if owner:
             return f"{module}.{owner}" if module else owner
     return module
+
+
+def _add_package_ancestors(
+    nodes: dict[str, Node], module_grammars: dict[str, Grammar]
+) -> None:
+    """Create the levels a module id implies but no file declares.
+
+    A directory is a namespace whether or not anything sits directly in it:
+    `cmd/tui` needs a `cmd` above it, and a Python package without an
+    `__init__.py` never produces a module of its own. Without these the tree
+    is a list, every module is a root, and a package is drawn beside the
+    modules it holds rather than around them.
+    """
+    for module, grammar in sorted(module_grammars.items()):
+        separator = grammar.namespace_separator
+        parts = module.split(separator)
+        for depth in range(1, len(parts)):
+            ancestor = separator.join(parts[:depth])
+            if ancestor in nodes:
+                continue
+            nodes[ancestor] = Node(
+                id=ancestor, kind=NodeKind.PACKAGE, name=parts[depth - 1],
+                parent=separator.join(parts[:depth - 1]) or None,
+            )
 
 
 def _add_missing_holders(nodes: dict[str, Node]) -> None:

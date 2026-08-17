@@ -10,7 +10,13 @@ import pytest
 
 pytest.importorskip("tree_sitter_go")
 
-from codecards.graph.model import CALLABLE_KINDS, Confidence, validate
+from codecards.graph.model import (
+    CALLABLE_KINDS,
+    CONTAINER_KINDS,
+    Confidence,
+    NodeKind,
+    validate,
+)
 from codecards.scip import structural
 
 GO = """package app
@@ -87,6 +93,51 @@ def test_a_doc_comment_still_reaches_the_card(tmp_path):
 def test_main_is_still_a_door(tmp_path):
     graph, _ = project(tmp_path, **{"main.go": "package main\n\nfunc main() {}\n"})
     assert [h.node_id for h in graph.entry_hints] == ["main"]
+
+
+def test_a_nested_package_contains_the_modules_below_it(tmp_path):
+    """Containment has to be a tree, not a list.
+
+    Every module used to arrive with no parent, which drew a package beside
+    the modules it holds instead of around them. Nothing downstream survives
+    that: the opening view is chosen by descending to the first level holding
+    more than one container, and collapse has nothing to fold.
+    """
+    pytest.importorskip("tree_sitter_python")
+    # Written directly: the project() helper spells directories with "__",
+    # which cannot express a file actually called __init__.py.
+    for name, text in {
+        "pkg/__init__.py": "",
+        "pkg/config.py": "def load():\n    pass\n",
+        "pkg/checks/__init__.py": "",
+        "pkg/checks/length.py": "def check():\n    pass\n",
+    }.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    graph, _ = structural.analyze(roots=[tmp_path], embed_source=False)
+    validate(graph)
+    parents = {n.id: n.parent for n in graph.nodes.values()
+               if n.kind in CONTAINER_KINDS}
+    assert parents == {
+        "pkg": None,
+        "pkg.config": "pkg",
+        "pkg.checks": "pkg",
+        "pkg.checks.length": "pkg.checks",
+    }
+
+
+def test_a_package_no_file_declares_is_still_drawn(tmp_path):
+    """A Go directory is a namespace whether or not anything sits directly in
+    it, so the level above a package has to be invented rather than skipped -
+    otherwise its children point at a parent that does not exist."""
+    graph, _ = project(tmp_path, **{
+        "cmd__tui__main.go": "package main\n\nfunc main() {}\n",
+    })
+    validate(graph)
+    assert graph.nodes["cmd"].kind is NodeKind.PACKAGE
+    assert graph.nodes["cmd"].parent is None
+    assert graph.nodes["cmd/tui"].parent == "cmd"
 
 
 def test_vendored_code_is_not_the_project(tmp_path):
