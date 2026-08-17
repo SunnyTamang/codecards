@@ -57,8 +57,8 @@ def project(tmp_path):
     identifier tree-sitter found, so hand-written coordinates silently produce
     an index that resolves nothing.
     """
-    from codecards.scip import syntax
-    from codecards.scip.grammars import GO
+    from codecards.parse import syntax
+    from codecards.parse.grammars import GO
 
     source = SOURCE.encode()
     (tmp_path / "r.go").write_text(SOURCE)

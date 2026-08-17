@@ -143,7 +143,7 @@ def _read_structure(args):
     this cannot help.
     """
     try:
-        from .scip import structural  # noqa: PLC0415
+        from .parse import structural  # noqa: PLC0415
     except ImportError:
         return None
     if not structural.source_files([Path(p) for p in args.paths]):
@@ -170,7 +170,7 @@ def _suggest_an_index(paths, output: Path | None = None) -> None:
     distance between a dead end and a graph, and nothing else in the program
     was telling anyone about them.
     """
-    from .scip import grammars  # noqa: PLC0415 - the default path never needs this
+    from .parse import grammars  # noqa: PLC0415 - the default path never needs this
 
     found: list[tuple] = []
     for path in paths:

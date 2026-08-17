@@ -32,8 +32,8 @@ from ..graph.model import (
     NodeKind,
     validate,
 )
+from ..parse import grammars, syntax
 from ..report import AnalysisReport
-from . import grammars, syntax
 from . import index as scip
 
 MAX_SOURCE_LINES = 400

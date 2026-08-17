@@ -12,8 +12,8 @@ import pytest
 
 pytest.importorskip("tree_sitter_go")
 
-from codecards.scip import syntax
-from codecards.scip.grammars import GO, for_path
+from codecards.parse import syntax
+from codecards.parse.grammars import GO, for_path
 
 SOURCE = b'''package main
 

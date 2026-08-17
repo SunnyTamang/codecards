@@ -17,7 +17,7 @@ from codecards.graph.model import (
     NodeKind,
     validate,
 )
-from codecards.scip import structural
+from codecards.parse import structural
 
 GO = """package app
 

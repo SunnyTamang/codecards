@@ -10,8 +10,8 @@ import pytest
 
 pytest.importorskip("tree_sitter_python")
 
-from codecards.scip import syntax
-from codecards.scip.grammars import PYTHON
+from codecards.parse import syntax
+from codecards.parse.grammars import PYTHON
 
 SOURCE = b'''
 import os
