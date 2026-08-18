@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from .. import __version__
 from ..graph.collapse import collapse, default_collapsed
+from ..graph.cycles import in_a_cycle, strongly_connected
 from ..graph.entrypoints import detect_entry_points
 from ..graph.model import CodeGraph, EntryReason
 from ..graph.walkthrough import build_walkthrough
@@ -31,6 +32,11 @@ def build_viewmodel(
         golden = {"entryId": entry_id, "steps": [_step(s) for s in steps]}
 
     nodes = [_node(n) for n in graph.nodes.values()]
+    # Computed here rather than read off the drawing: layout reverses edges
+    # until the graph is acyclic, so by the time coordinates exist no line
+    # runs backwards and the ring has been laid out away.
+    circular = in_a_cycle(graph)
+    rings = strongly_connected(graph)
     return {
         "meta": {
             "version": __version__,
@@ -39,7 +45,7 @@ def build_viewmodel(
             "hasSource": any("source" in n for n in nodes),
         },
         "nodes": nodes,
-        "edges": [_edge(e) for e in graph.edges],
+        "edges": [_edge(e, circular) for e in graph.edges],
         "entryPoints": [
             {"id": e.node_id, "reasons": [r.value for r in e.reasons]}
             for e in entry_points
@@ -68,6 +74,10 @@ def build_viewmodel(
             "callableCount": report.callable_count,
             "edgeCount": report.edge_count,
             "skipped": [{"path": s.path, "reason": s.reason} for s in report.skipped],
+            # Rare and load-bearing: one ring in this project's own graph,
+            # eight in bubbletea's. Named rather than merely counted, since
+            # "there is a cycle somewhere" only sends the reader hunting.
+            "cycles": [list(r) for r in rings],
             # Carried into the page so the caveat travels with the artefact.
             # A graph gets shared, opened weeks later, and shown to people who
             # never saw the terminal that built it.
@@ -123,8 +133,8 @@ def _node(node) -> dict:
     return payload
 
 
-def _edge(edge) -> dict:
-    return {
+def _edge(edge, circular) -> dict:
+    payload = {
         "source": edge.source,
         "target": edge.target,
         "confidence": edge.confidence.value,
@@ -133,6 +143,11 @@ def _edge(edge) -> dict:
             for s in edge.call_sites
         ],
     }
+    # Only on the few that are, so the common case costs no bytes in a file
+    # that is already megabytes of embedded source.
+    if (edge.source, edge.target) in circular:
+        payload["circular"] = True
+    return payload
 
 
 def _step(step) -> dict:

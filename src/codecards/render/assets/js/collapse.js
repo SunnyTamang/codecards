@@ -27,12 +27,16 @@ CC.collapse = (function () {
       const key = source + ' ' + target;
       let entry = merged.get(key);
       if (!entry) {
-        entry = { source: source, target: target, weight: 0, tiers: {} };
+        entry = { source: source, target: target, weight: 0, tiers: {},
+                  circular: false };
         merged.set(key, entry);
       }
       const weight = (edge.sites && edge.sites.length) || 1;
       entry.weight += weight;
       entry.tiers[edge.confidence] = (entry.tiers[edge.confidence] || 0) + weight;
+      // A ring survives being folded up: two modules whose contents call
+      // into each other are as circular as the two functions that do.
+      if (edge.circular) entry.circular = true;
     });
     // Display at the highest confidence present: at least one call is certain.
     return Array.from(merged.values()).map(function (entry) {

@@ -79,7 +79,8 @@ CC.edges = (function () {
 
       // The tier class and the edge id live on this path alone. Anything else
       // carrying them would inflate every count of drawn edges.
-      const line = el('path', edge.confidence, layer);
+      const line = el('path',
+        edge.confidence + (edge.circular ? ' circular' : ''), layer);
       line.setAttribute('d',
         'M' + from.x + ',' + from.y + ' Q' + cx + ',' + cy + ' ' + tip.x + ',' + tip.y);
       line.dataset.edge = edge.source + '->' + edge.target;

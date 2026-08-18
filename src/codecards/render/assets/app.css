@@ -560,6 +560,12 @@ html, body {
 #edges path.resolved { stroke: var(--resolved); opacity: 0.85; }
 #edges path.inferred { stroke: var(--inferred); stroke-dasharray: 5 4; opacity: 0.9; }
 #edges path.ambiguous { stroke: var(--ambiguous); stroke-dasharray: 1.5 4; }
+/* A call that closes a ring. Weight is the one channel the tiers do not
+   already speak for, so this composes with any of them rather than
+   competing: a circular inferred edge stays amber and dashed, and reads as
+   heavier. Rare by nature - 1 ring in this project, 8 in bubbletea's - so a
+   quiet mark is enough to find, and the panel names the ring. */
+#edges path.circular { stroke-width: 2.6; }
 #edges path.dimmed, #edges circle.dimmed { opacity: 0.07; }
 
 /* Head and connector dot. Both are sized against the zoom in edges.js, so

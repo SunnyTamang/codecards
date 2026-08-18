@@ -30,6 +30,7 @@ CC.controls = (function () {
     ['edge inferred', 'dashed line', 'one definition has that name, so a guess'],
     ['edge ambiguous', 'faint dashes', 'several candidates, none trusted, hidden by default'],
     ['weight', '7', 'how many calls this one line stands for'],
+    ['edge circular resolved', 'heavier line', 'this call closes a ring: something it reaches calls back'],
     ['body', '<module>', 'a module’s own top-level code, which runs on import'],
     ['chip entry', 'entry', 'a way into the program'],
     ['chip unused', 'unused', 'nothing calls it, and the language does not either'],
@@ -210,6 +211,10 @@ CC.controls = (function () {
       ['Unresolved', (stats.byConfidence.unresolved || 0) + ' (not drawn)'],
       ['Resolution rate', Math.round(stats.resolutionRate * 100) + '%'],
     ];
+    const rings = stats.cycles || [];
+    if (rings.length) {
+      rows.push(['Circular', rings.length + (rings.length === 1 ? ' ring' : ' rings')]);
+    }
     if (CC.view.state.edgesWithheld) {
       rows.push(['Quiet edges hidden',
                  CC.view.state.edgesWithheld + ' carrying fewer than ' +
@@ -251,6 +256,25 @@ CC.controls = (function () {
         host.appendChild(line);
       });
     }
+    if (rings.length) {
+      const ringHeading = document.createElement('h3');
+      ringHeading.textContent = rings.length === 1 ? 'One circular dependency'
+                                                   : rings.length + ' circular dependencies';
+      host.appendChild(ringHeading);
+      const note = document.createElement('p');
+      note.textContent =
+        'Each of these calls into the next and the last calls back, so there ' +
+        'is no order in which they could be read one at a time. The calls ' +
+        'that close a ring are drawn heavier.';
+      host.appendChild(note);
+      rings.forEach(function (ring) {
+        const line = document.createElement('div');
+        line.className = 'skipped';
+        line.textContent = ring.join('  \u2192  ') + '  \u2192';
+        host.appendChild(line);
+      });
+    }
+
     host.hidden = false;
   }
 
