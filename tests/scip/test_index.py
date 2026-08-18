@@ -252,3 +252,36 @@ def test_a_call_at_module_scope_leaves_no_edge(tmp_path):
     ]
     for edge in graph.edges:
         assert graph.nodes[edge.source].kind in CALLABLE_KINDS
+
+
+def test_a_recursive_call_is_an_edge_like_any_other(tmp_path):
+    """A function calling itself was discarded outright, and not counted
+    either, so it vanished from the totals as well as the graph. Collapse
+    already folds a self-edge into the card's internal count - the badge that
+    says "calls that stay inside" - so nothing downstream needed a change;
+    this path simply never let one through. Ten of them on this project's own
+    source, which is the only respect in which an index lost to reading the
+    source directly.
+    """
+    from codecards.scip import analyze
+
+    walk = SYMBOL.replace("run()", "walk()")
+    (tmp_path / "run.py").write_text(
+        "def walk(n):\n"
+        "    if n:\n"
+        "        walk(n - 1)\n"
+        "    return n\n"
+    )
+    index = tmp_path / "index.scip"
+    index.write_bytes(
+        metadata(f"file://{tmp_path}")
+        + document("run.py",
+                   occurrence(0, 4, 8, walk, roles=1),   # def walk
+                   occurrence(2, 8, 12, walk))           # walk(n - 1)
+    )
+    graph, report = analyze(roots=[tmp_path], index_path=index, embed_source=False)
+    validate(graph)
+    assert [(e.source, e.target) for e in graph.edges] == [
+        ("pkg.mod.Thing.walk", "pkg.mod.Thing.walk")
+    ]
+    assert report.by_confidence.get("resolved") == 1

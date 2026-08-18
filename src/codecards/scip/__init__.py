@@ -310,8 +310,13 @@ def analyze(
                 by_confidence["external"] = by_confidence.get("external", 0) + 1
                 continue
             source_id = enclosing(site.line)
-            if source_id == target:
-                continue
+            # A function calling itself is an edge like any other. This used
+            # to discard it without counting it, so recursion vanished from
+            # the totals as well as the graph - ten of them on this project's
+            # own source, and the only respect in which an index lost to
+            # reading the source directly. Nothing downstream needed a change:
+            # collapse already folds a self-edge into the card's own count,
+            # the badge that reads "calls that stay inside".
             call_site = CallSite(
                 line=site.line,
                 in_conditional=site.in_conditional,
