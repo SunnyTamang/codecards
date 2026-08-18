@@ -186,6 +186,13 @@ Edges are drawn according to how certain the analysis is:
 | Dashed | inferred | An attribute call with no type information, but exactly one function in the codebase has that name |
 | Hidden by default | ambiguous | Several functions share that name, so no single target is trusted. Toggle them on to see the candidates |
 
+A call drawn heavier closes a ring: something it reaches calls back. Layout
+puts a caller above its callee, so a ring has no order it could be read in,
+and the layout engine resolves that by quietly reversing edges until the
+graph is acyclic - which means the picture alone can never show you one.
+These are found in the graph instead, and the `i` panel names each ring in
+full.
+
 The `i` button in the toolbar lists what every style on the canvas means,
 alongside the resolution figures.
 
