@@ -33,6 +33,9 @@ class Definition:
     name_char: int
     signature: str
     docstring: str | None
+    #: Names attached to this definition without calling it. Empty for a
+    #: language with no such concept, and for anything undecorated.
+    decorators: tuple[str, ...] = ()
     parent: Definition | None = None
     children: list[Definition] = field(default_factory=list)
     #: The node itself, for the questions only a language can answer about it -
@@ -93,6 +96,8 @@ def definitions(grammar: Grammar, tree, source: bytes) -> list[Definition]:
                               else _text(params, source),
                     docstring=(grammar.docstring(node, _text, source)
                                if grammar.docstring else None),
+                    decorators=(grammar.decorators(node, _text, source)
+                                if grammar.decorators else ()),
                     parent=parent,
                     node=node,
                 )

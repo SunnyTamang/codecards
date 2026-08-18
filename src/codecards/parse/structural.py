@@ -54,6 +54,58 @@ _KINDS = {
     "method": NodeKind.METHOD,
 }
 
+#: Decorators that describe how a callable behaves, not who reaches it.
+#: `@staticmethod` says nothing about whether anything uses the function, so
+#: it must not exempt it from the `unused` badge.
+BEHAVIOUR_DECORATORS = frozenset({
+    "property", "staticmethod", "classmethod",
+    "setter", "getter", "deleter",
+    "abstractmethod", "abstractproperty",
+    "cached_property", "cache", "lru_cache", "wraps",
+    "singledispatch", "singledispatchmethod", "total_ordering",
+    "overload", "final", "no_type_check", "runtime_checkable",
+    "dataclass", "contextmanager", "asynccontextmanager",
+})
+
+#: Of those, the ones the language itself then invokes. A property runs on
+#: every attribute access, so it has no visible caller by nature.
+LANGUAGE_INVOKED_DECORATORS = frozenset({
+    "property", "cached_property", "setter", "getter", "deleter",
+})
+
+
+def is_dunder(name: str) -> bool:
+    """A special method by name, called by the interpreter rather than from
+    any visible call site."""
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
+def implicitly_called(definition) -> bool:
+    """Whether anything reaches this without a call site a reader can see.
+
+    Three ways that happens, and all of them mean the same for the `unused`
+    badge: a reference exists, so this is not dead code.
+
+    A dunder or a property is invoked by the language itself. Anything else
+    carrying a decorator was handed to that decorator when the module was
+    imported - a registry files it into a table, a framework binds it to a
+    route - and a decorator receives a function rather than calling it, which
+    is a reference all the same.
+
+    Marking it rather than drawing an edge is deliberate. An edge would assert
+    a call that never happens, stated at full confidence, which is exactly
+    what the tiers exist to prevent.
+    """
+    if is_dunder(definition.name):
+        return True
+    for decorator in getattr(definition, "decorators", ()):
+        tail = decorator.rsplit(".", 1)[-1]
+        if tail in LANGUAGE_INVOKED_DECORATORS:
+            return True
+        if tail not in BEHAVIOUR_DECORATORS:
+            return True
+    return False
+
 
 def source_files(
     roots: list[Path], excludes: tuple[str, ...] | list[str] = ()
@@ -183,8 +235,8 @@ def analyze(
                 source=body,
                 source_tokens=tokens,
                 source_truncated=truncated,
-                is_dunder=definition.name.startswith("__")
-                          and definition.name.endswith("__"),
+                implicitly_called=implicitly_called(definition),
+                is_dunder=is_dunder(definition.name),
             )
             if definition.kind != "class":
                 by_name.setdefault(definition.name, []).append(qualname)

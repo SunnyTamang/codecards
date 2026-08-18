@@ -39,6 +39,8 @@ from ..parse.structural import (
     _add_missing_holders,
     _add_package_ancestors,
     _holder,
+    implicitly_called,
+    is_dunder,
     module_id_for,
     source_files,
 )
@@ -164,8 +166,8 @@ def analyze(
                     signature=definition.signature or None,
                     summary=definition.docstring,
                     source=body, source_tokens=tokens, source_truncated=truncated,
-                    is_dunder=definition.name.startswith("__")
-                              and definition.name.endswith("__"),
+                    implicitly_called=implicitly_called(definition),
+                    is_dunder=is_dunder(definition.name),
                 )
                 where = str(path.resolve())
                 by_position[(where, definition.name_line)] = qualname

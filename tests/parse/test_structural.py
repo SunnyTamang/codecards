@@ -148,3 +148,52 @@ def test_vendored_code_is_not_the_project(tmp_path):
         "vendor__other__lib.go": "package other\n\nfunc theirs() {}\n",
     })
     assert {n.name for n in graph.nodes.values() if n.kind in CALLABLE_KINDS} == {"mine"}
+
+
+REGISTRY = {
+    "reg.py": (
+        "CHECKS = {}\n"
+        "\n"
+        "def register(name):\n"
+        "    def bind(function):\n"
+        "        CHECKS[name] = function\n"
+        "        return function\n"
+        "    return bind\n"
+    ),
+    "checks.py": (
+        "from reg import register\n"
+        "\n"
+        "@register('length')\n"
+        "def check_length(lines):\n"
+        "    return len(lines)\n"
+        "\n"
+        "\n"
+        "class Widget:\n"
+        "    @property\n"
+        "    def size(self):\n"
+        "        return 1\n"
+        "\n"
+        "    def plain(self):\n"
+        "        return 2\n"
+    ),
+}
+
+
+def test_a_function_handed_to_a_decorator_is_not_dead(tmp_path):
+    """A decorator receives a function rather than calling it, which is still
+    a reference. Without this the registry pattern brands its own contents
+    dead code: nothing calls a registered check by name, so every one of them
+    carries an `unused` badge while the registration stays invisible."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **REGISTRY)
+    assert graph.nodes["checks.check_length"].implicitly_called is True
+
+
+def test_a_property_is_implicit_and_a_plain_method_is_not(tmp_path):
+    """The exemption must not swallow genuine dead code. A property runs on
+    attribute access; a plain method with no callers is exactly what the
+    badge is for."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **REGISTRY)
+    assert graph.nodes["checks.Widget.size"].implicitly_called is True
+    assert graph.nodes["checks.Widget.plain"].implicitly_called is False

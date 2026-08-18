@@ -103,6 +103,12 @@ class Grammar:
     #: Definitions that are themselves doors in. Go's `main` is one.
     entry_definitions: Callable[..., list] | None = None
 
+    #: What is attached to a definition without calling it. A Python
+    #: decorator receives the function, so it is a reference and keeps the
+    #: definition from reading as dead code. Go has no equivalent, which is
+    #: why this is a hook rather than a node type in the table.
+    decorators: Callable[..., tuple[str, ...]] | None = None
+
     #: The type a method is attached to, for languages that attach by
     #: declaration rather than by nesting. With an index the symbol says this;
     #: without one it has to be read off the receiver.
@@ -146,6 +152,34 @@ def _python_docstring(node, text, source: bytes) -> str | None:
     raw = text(literal, source).strip("\"'\n ")
     lines = raw.strip().splitlines()
     return lines[0].strip() if lines else None
+
+
+def _python_decorators(node, text, source: bytes) -> tuple[str, ...]:
+    """The dotted names decorating this definition.
+
+    A decorated `def` is wrapped in a `decorated_definition` whose other
+    children are the decorators, so this reads upward rather than into the
+    body. `@app.route("/")` is reported as `app.route`: the arguments say
+    nothing about whether the function is reachable, only the name does.
+    """
+    holder = node.parent
+    if holder is None or holder.type != "decorated_definition":
+        return ()
+    found = []
+    for child in holder.children:
+        if child.type != "decorator":
+            continue
+        # The decorator node includes its own "@"; the expression beneath it
+        # is either a name, an attribute, or a call whose function is one.
+        expression = next((c for c in child.children if c.type != "@"), None)
+        if expression is None:
+            continue
+        if expression.type == "call":
+            expression = expression.child_by_field_name("function") or expression
+        name = text(expression, source).strip()
+        if name:
+            found.append(name)
+    return tuple(found)
 
 
 def _go_doc_comment(node, text, source: bytes) -> str | None:
@@ -273,6 +307,7 @@ PYTHON = Grammar(
     lsp_install="pip install pyright",
     language_id="python",
     docstring=_python_docstring,
+    decorators=_python_decorators,
     entry_calls=_python_main_block,
 )
 
