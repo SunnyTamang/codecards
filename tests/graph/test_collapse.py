@@ -49,7 +49,32 @@ def test_parallel_edges_merge_with_weight_and_tiers():
     # 2 resolved call sites + 1 ambiguous call site, all now main -> app.mail
     assert edge.weight == 3
     assert edge.tiers == {"resolved": 2, "ambiguous": 1}
-    # Strongest tier present wins, because at least one certain call exists.
+
+
+def test_a_merged_edge_is_drawn_at_its_weakest_call():
+    """One certain call must not speak for the uncertain ones beside it.
+
+    This fixture is the argument in miniature: two resolved calls and one
+    ambiguous, which used to draw solid. On this project's own structural
+    graph the same rule made 14 of 24 module edges claim certainty while at
+    least half of what each stood for was a guess, one of them 90%.
+
+    Nothing is hidden by being cautious here. Which tiers get drawn is
+    decided on the individual calls before they are merged, so a real
+    dependency cannot vanish because its aggregate is styled carefully.
+    """
+    edge = collapse(build(), collapsed={"app.mail"}).edges[0]
+    assert edge.confidence is Confidence.AMBIGUOUS
+    # and the count survives, so the panel can say how much is a guess
+    assert edge.tiers == {"resolved": 2, "ambiguous": 1}
+
+
+def test_an_edge_of_one_tier_is_unchanged():
+    """The common case, and the whole of any graph a language server built:
+    a server either knows or says nothing, so nothing it produces mixes."""
+    graph = build()
+    graph.edges = [e for e in graph.edges if e.confidence is Confidence.RESOLVED]
+    edge = collapse(graph, collapsed={"app.mail"}).edges[0]
     assert edge.confidence is Confidence.RESOLVED
 
 

@@ -85,6 +85,18 @@ CC.edges = (function () {
         'M' + from.x + ',' + from.y + ' Q' + cx + ',' + cy + ' ' + tip.x + ',' + tip.y);
       line.dataset.edge = edge.source + '->' + edge.target;
 
+      // A line drawn at its weakest tier says "something here is a guess"
+      // and cannot say how much. The count can, and hovering is where a
+      // reader asks. Only when the aggregate stands for more than one call.
+      if (edge.tiers && edge.weight > 1) {
+        const parts = Object.keys(edge.tiers).map(function (tier) {
+          return edge.tiers[tier] + ' ' + tier;
+        });
+        const title = document.createElementNS(NS, 'title');
+        title.textContent = edge.weight + ' calls: ' + parts.join(', ');
+        line.appendChild(title);
+      }
+
       // Where the call leaves from. Pushed out along the line by its own
       // radius so it sits against the card rather than half behind it: the
       // edge layer paints under the cards, so a dot centred on the boundary

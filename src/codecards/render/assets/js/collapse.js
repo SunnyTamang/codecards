@@ -38,9 +38,12 @@ CC.collapse = (function () {
       // into each other are as circular as the two functions that do.
       if (edge.circular) entry.circular = true;
     });
-    // Display at the highest confidence present: at least one call is certain.
+    // The weakest tier present, not the strongest. Folding a module up used
+    // to let one certain call speak for every uncertain one beneath it. Must
+    // match graph/collapse.py, which the golden test asserts.
     return Array.from(merged.values()).map(function (entry) {
-      entry.confidence = ORDER.find(function (tier) { return entry.tiers[tier]; });
+      entry.confidence = ORDER.slice().reverse()
+        .find(function (tier) { return entry.tiers[tier]; });
       return entry;
     });
   }

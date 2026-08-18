@@ -130,12 +130,24 @@ def collapse(graph: CodeGraph, collapsed: set[str]) -> ViewGraph:
 
     view_edges = []
     for (source, target), tiers in sorted(merged.items()):
-        best = next(c for c in CONFIDENCE_ORDER if c.value in tiers)
+        # The weakest tier present, not the strongest. Folding a module up
+        # used to let one certain call speak for every uncertain one beneath
+        # it: on this project's own structural graph, 14 of 24 module edges
+        # drew as resolved while at least half of what they stood for was a
+        # guess, and one was 90% guesses. An edge that contains a guess has
+        # to look like it contains a guess.
+        #
+        # It costs nothing in visibility. Which tiers are drawn is decided on
+        # the individual calls before they are merged, so styling the
+        # aggregate more cautiously cannot make a real dependency disappear.
+        weakest = next(
+            c for c in reversed(CONFIDENCE_ORDER) if c.value in tiers
+        )
         view_edges.append(
             ViewEdge(
                 source=source,
                 target=target,
-                confidence=best,
+                confidence=weakest,
                 weight=sum(tiers.values()),
                 tiers=dict(sorted(tiers.items())),
             )
