@@ -21,6 +21,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: python -m playwright install --with-deps chromium
+      # The resolution ratchet skips when no language server is installed,
+      # which would let a resolution regression through green. Fail here
+      # instead, where the cause is obvious.
+      - name: A language server must be reachable
+        run: |
+          python -c "
+          from codecards.lsp.client import find
+          from codecards.parse.grammars import PYTHON
+          assert find(PYTHON.lsp_command), 'no Python language server; the ratchet would skip'
+          "
       - run: python -m pytest -v
 
   # Lint only, no formatter check: `ruff format` would rewrite most of the
