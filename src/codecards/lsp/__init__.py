@@ -117,9 +117,14 @@ def analyze(
     nodes: dict[str, Node] = {}
     parsed: list[tuple] = []
     module_grammars: dict[str, object] = {}
-    #: (absolute file, zero-based line of the defining name) -> node id. This
-    #: is how a location the server hands back becomes a card.
-    by_position: dict[tuple[str, int], str] = {}
+    #: (absolute file, zero-based line, character) -> node id. This is how a
+    #: location the server hands back becomes a card.
+    #:
+    #: The character matters. A parameter is declared on the same line as the
+    #: function's own name, so keying by line alone makes every call to a
+    #: callable parameter look like the function calling itself - four false
+    #: self-edges on this source, each drawn resolved at full confidence.
+    by_position: dict[tuple[str, int, int], str] = {}
 
     with Client(command, root) as client:
         capabilities = client.initialize()
@@ -176,12 +181,8 @@ def analyze(
                     implicitly_called=implicitly_called(definition),
                     is_dunder=is_dunder(definition.name),
                 )
-                where = str(path.resolve())
-                by_position[(where, definition.name_line)] = qualname
-                # Servers disagree about whether a definition is the name or
-                # the statement introducing it, so accept either.
-                by_position.setdefault(
-                    (where, definition.line_start - 1), qualname)
+                by_position[(str(path.resolve()), definition.name_line,
+                             definition.name_char)] = qualname
 
         _add_package_ancestors(nodes, module_grammars)
         _add_missing_holders(nodes)
@@ -316,7 +317,9 @@ def _resolve(client, path, site, by_position):
     span = first.get("range") or first.get("targetSelectionRange")
     if not uri or not span:
         return None
-    target = by_position.get((_path_of(uri), span["start"]["line"]))
+    start = span["start"]
+    target = by_position.get(
+        (_path_of(uri), start["line"], start["character"]))
     return ("internal", target) if target else ("external", uri)
 
 

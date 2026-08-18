@@ -123,3 +123,28 @@ def test_source_is_embedded_when_asked(tmp_path):
     assert send.source is not None
     assert "def send" in send.source
     assert send.kind in CALLABLE_KINDS
+
+
+def test_calling_a_parameter_is_not_the_function_calling_itself(tmp_path):
+    """A parameter is declared on the same line as the function's own name.
+    Keyed by line alone, every call to a callable parameter resolved to the
+    enclosing function - four false self-edges on this project's source, each
+    drawn `resolved` at full confidence, which is precisely what the
+    confidence tiers exist to prevent."""
+    root = project(tmp_path, **{
+        "m.py": (
+            "def render(node, text):\n"
+            "    return text(node)\n"
+            "\n"
+            "\n"
+            "def walk(n):\n"
+            "    if n:\n"
+            "        walk(n - 1)\n"
+            "    return n\n"
+        ),
+    })
+    graph, _report = analyze([root], embed_source=False)
+    loops = {e.source for e in graph.edges if e.source == e.target}
+    # `walk` really does call itself; `render` really does not.
+    assert "m.walk" in loops
+    assert "m.render" not in loops
