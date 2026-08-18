@@ -193,12 +193,19 @@ def imported_modules(unit: SourceUnit, known: set[str]) -> list[tuple[int, str]]
         else:
             base = ""
         prefix = separator.join(p for p in (base, dotted) if p)
-        candidates = [separator.join((prefix, n)) for n in names if prefix]
-        candidates.append(prefix)
-        target = next(
-            (c for c in candidates if c in known and c != unit.module), None)
-        if target:
-            found.append((line, target))
+
+        # `from . import length, naming` imports two modules and has to draw
+        # two edges. Taking only the first is how `from . import x, y` loses
+        # y - which on the fixture silently dropped one of the two checks the
+        # program runs, the exact failure this whole change exists to fix.
+        submodules = [c for c in (separator.join((prefix, n)) for n in names)
+                      if prefix and c in known and c != unit.module]
+        if submodules:
+            found.extend((line, target) for target in submodules)
+        elif prefix in known and prefix != unit.module:
+            # The names were ordinary names, so the edge lands on the module
+            # whose body defines them.
+            found.append((line, prefix))
     return found
 
 

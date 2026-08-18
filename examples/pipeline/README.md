@@ -60,7 +60,9 @@ This directory exists to be the fixture that change is measured against.
 ## What should stay unresolved
 
 `registry.run` calls `CHECKS[name](lines)`. The target depends on which modules
-were imported, which is a runtime fact. It should keep being reported as
-unresolved after the change, and it is here so the fixture shows the honest
-limit sitting next to the cases that are only missing because nothing models
-import-time flow.
+were imported, which is a runtime fact, and it must stay undrawn.
+
+It is not merely unresolved: the thing being called is a subscript rather than
+a name, so there is no identifier to look up and the call is not counted at
+all. That is the honest answer either way, and it sits here next to the cases
+that were missing only because nothing modelled import-time flow.

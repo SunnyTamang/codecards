@@ -255,8 +255,9 @@ def test_a_module_that_only_defines_things_gets_no_body(tmp_path):
 SIDE_EFFECT = {
     "pkg/__init__.py": "",
     "pkg/registry.py": "def register(name):\n    return name\n",
-    "pkg/checks/__init__.py": "from . import length\n",
+    "pkg/checks/__init__.py": "from . import length, naming\n",
     "pkg/checks/length.py": "from ..registry import register\n\n\ndef check():\n    pass\n",
+    "pkg/checks/naming.py": "def check():\n    pass\n",
 }
 
 
@@ -303,3 +304,13 @@ def test_a_library_import_draws_nothing(tmp_path):
     pytest.importorskip("tree_sitter_python")
     graph, _ = written(tmp_path, {"m.py": "import os\n\n\ndef a():\n    pass\n"})
     assert not any("os" in e.target for e in graph.edges)
+
+
+def test_importing_several_modules_at_once_draws_all_of_them(tmp_path):
+    """`from . import length, naming` is the load-bearing line of a plugin
+    package, and taking only the first name silently removes every check
+    after it - the precise failure this whole change exists to fix."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, SIDE_EFFECT)
+    targets = {e.target for e in graph.edges if e.source == "pkg.checks.<module>"}
+    assert targets == {"pkg.checks.length.<module>", "pkg.checks.naming.<module>"}
