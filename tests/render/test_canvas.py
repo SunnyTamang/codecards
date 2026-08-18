@@ -181,3 +181,28 @@ def test_a_drag_past_the_threshold_still_pans(canvas_page):
     canvas_page.mouse.up()
     after = canvas_page.evaluate("CC.canvas.getView()")
     assert after["x"] < before["x"] and after["y"] < before["y"]
+
+
+def test_a_large_flat_container_is_packed_not_strung_out(graph_page):
+    """Layered puts everything with no incoming edge on one rank. A Go package
+    is flat by construction, and bubbletea's came out 59,083 by 534 - a 110:1
+    ribbon, illegible at any zoom that fits it. Neither elk.aspectRatio nor
+    layered.wrapping changes that; only the algorithm does.
+    """
+    ratio = graph_page.evaluate("""async () => {
+        // 60 siblings in one container, none calling any other.
+        const kids = [];
+        for (let i = 0; i < 60; i += 1) {
+            kids.push({id: 'lone' + i, width: 210, height: 54});
+        }
+        const packed = await new ELK().layout({
+            id: 'root',
+            layoutOptions: {'elk.algorithm': 'layered', 'elk.direction': 'DOWN'},
+            children: [{id: 'flat', children: kids, layoutOptions: {
+                'elk.algorithm': 'rectpacking', 'elk.aspectRatio': '1.6'}}],
+            edges: [],
+        });
+        const box = packed.children[0];
+        return box.width / box.height;
+    }""")
+    assert ratio < 4, f"packed container came out {ratio:.1f}:1"

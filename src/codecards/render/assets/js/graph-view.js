@@ -8,6 +8,14 @@ CC.view = (function () {
   const PAD = 14;
 
   const elk = new ELK();
+
+  //: Above this many members in one container, the layered algorithm strings
+  //: the ones with no sibling edge along a single rank. Roughly the point at
+  //: which that row grows wider than the block it would pack into: a card is
+  //: about 210 units, so twenty of them already exceed the width of the
+  //: packed alternative. Set well clear of anything a Python module reaches -
+  //: the largest here holds 14 - so this only fires on flat packages.
+  const PACK_ABOVE = 40;
   const state = {
     data: null,
     collapsed: new Set(),
@@ -183,6 +191,22 @@ CC.view = (function () {
           'elk.padding': '[top=' + PAD_TOP + ',left=' + PAD +
                          ',bottom=' + PAD + ',right=' + PAD + ']',
         };
+        // Layered puts everything with no incoming edge on one rank, which is
+        // fine until a container holds a lot of members that never call each
+        // other. A Go package is flat by construction: bubbletea's came out
+        // 59,083 by 534, a 110:1 ribbon that is illegible at any zoom which
+        // fits it. No amount of elk.aspectRatio or layered.wrapping touches
+        // this - measured, all six combinations returned the identical
+        // number - because the only thing that changes it is the algorithm.
+        //
+        // Packing costs real information: inside this one container, vertical
+        // position stops meaning call depth. That is worth paying only where
+        // the alternative is unreadable, so it is a last resort rather than a
+        // default, and every edge is still drawn either way.
+        if (kids.length > PACK_ABOVE) {
+          node.layoutOptions['elk.algorithm'] = 'rectpacking';
+          node.layoutOptions['elk.aspectRatio'] = '1.6';
+        }
       } else {
         const fanIn = counts.inCount[id] || 0;
         const named = state.data.nodeIndex[id];
