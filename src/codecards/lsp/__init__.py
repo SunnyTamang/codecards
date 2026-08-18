@@ -41,6 +41,7 @@ from ..parse.structural import (
     _holder,
     implicitly_called,
     is_dunder,
+    module_body,
     module_id_for,
     source_files,
 )
@@ -188,10 +189,8 @@ def analyze(
             for site in syntax.call_sites(grammar, tree, source_bytes):
                 source_id = enclosing(site.line)
                 if source_id is None:
-                    # Module-level code has no calling callable, the way every
-                    # other tier also declines to draw one.
-                    _count(by_confidence, "unresolved")
-                    continue
+                    # Not inside any function, so it runs on import.
+                    source_id = module_body(nodes, module, grammar, relative)
                 found = _resolve(client, path, site, by_position)
                 if found is None:
                     _count(by_confidence, "unresolved")

@@ -107,6 +107,40 @@ def implicitly_called(definition) -> bool:
     return False
 
 
+def module_body(nodes, module: str, grammar: Grammar, relative: str) -> str:
+    """The callable a module's top-level code belongs to, created on demand.
+
+    Import-time work is not an edge case. Decorator registration, dispatch
+    tables, plugin discovery, settings modules and `__init__.py` re-exports
+    all run because a module was imported rather than because a function was
+    called, and an edge has to start at a callable. So the body is one: CPython
+    compiles a module's top level into a code object literally named
+    `<module>` and executes it once on first import. Go spells the same thing
+    as package-level initialisation.
+
+    A child of the module rather than the module itself, which is what keeps
+    the change small - the edge invariant is untouched, and collapse folds it
+    away like any other callable.
+
+    Created only when something actually calls out from module scope. Most
+    modules are nothing but imports and definitions, and a synthetic node on
+    every one of them would double the node count to say nothing.
+    """
+    name = grammar.body_name
+    body_id = f"{module}.{name}" if module else name
+    if body_id not in nodes:
+        nodes[body_id] = Node(
+            id=body_id, kind=NodeKind.FUNCTION, name=name,
+            parent=module or None,
+            location=Location(relative, 1, 1),
+            summary="Runs once, when this module is first imported.",
+            # Nothing calls it - the import system runs it - so the `unused`
+            # badge would be as wrong here as it is for a dunder.
+            implicitly_called=True,
+        )
+    return body_id
+
+
 def source_files(
     roots: list[Path], excludes: tuple[str, ...] | list[str] = ()
 ) -> list[tuple[Path, Path, Grammar]]:
@@ -264,10 +298,9 @@ def analyze(
         for site in syntax.call_sites(grammar, tree, source_bytes):
             caller = enclosing(site.line)
             if caller is None:
-                # A call at module scope has no calling callable, the way the
-                # indexed path also declines to draw one.
-                by_confidence["unresolved"] = by_confidence.get("unresolved", 0) + 1
-                continue
+                # Not inside any function, so it runs on import. That has a
+                # callable to leave from now.
+                caller = module_body(nodes, module, grammar, relative)
             candidates = [q for q in by_name.get(site.text, ()) if q != caller]
             if not candidates:
                 by_confidence["unresolved"] = by_confidence.get("unresolved", 0) + 1

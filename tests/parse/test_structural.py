@@ -197,3 +197,56 @@ def test_a_property_is_implicit_and_a_plain_method_is_not(tmp_path):
     graph, _ = project(tmp_path, **REGISTRY)
     assert graph.nodes["checks.Widget.size"].implicitly_called is True
     assert graph.nodes["checks.Widget.plain"].implicitly_called is False
+
+
+IMPORT_TIME = {
+    "conf.py": (
+        "import os\n"
+        "\n"
+        "\n"
+        "def _from_environment(defaults):\n"
+        "    return dict(defaults)\n"
+        "\n"
+        "\n"
+        "SETTINGS = _from_environment({})\n"
+    ),
+}
+
+
+def test_a_call_at_module_scope_leaves_from_the_module_body(tmp_path):
+    """Import-time work is not an edge case: registries, dispatch tables and
+    settings modules all run because a module was imported rather than
+    because a function was called. An edge must start at a callable, and a
+    module body is one - CPython compiles it to a code object called
+    `<module>` and runs it once."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **IMPORT_TIME)
+    validate(graph)
+    pairs = {(e.source, e.target) for e in graph.edges}
+    assert ("conf.<module>", "conf._from_environment") in pairs
+
+
+def test_the_module_body_is_a_child_of_its_module(tmp_path):
+    """A child rather than the module itself, so the edge invariant and
+    collapse both need no change: it folds away like any other callable."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **IMPORT_TIME)
+    body = graph.nodes["conf.<module>"]
+    assert body.parent == "conf"
+    assert body.kind in CALLABLE_KINDS
+
+
+def test_a_module_body_is_never_badged_dead(tmp_path):
+    """Nothing calls a module body; the import system runs it. Branding that
+    dead code is the same error the badge exists to avoid."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **IMPORT_TIME)
+    assert graph.nodes["conf.<module>"].implicitly_called is True
+
+
+def test_a_module_that_only_defines_things_gets_no_body(tmp_path):
+    """Most modules are nothing but imports and defs. A synthetic node on
+    every one of them doubles the node count to say nothing."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = project(tmp_path, **{"quiet.py": "def a():\n    pass\n"})
+    assert "quiet.<module>" not in graph.nodes

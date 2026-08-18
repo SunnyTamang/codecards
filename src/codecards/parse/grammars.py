@@ -91,6 +91,12 @@ class Grammar:
     #: What a server expects this language to be called in a didOpen.
     language_id: str = ""
 
+    #: What to call the callable holding a module's top-level code. CPython
+    #: names that code object `<module>`; Go runs package-level
+    #: initialisation and calls the functions for it `init`. Neither is a
+    #: legal identifier here, so neither can collide with a real definition.
+    body_name: str = "<module>"
+
     #: The prose attached to a definition. A Python docstring is the first
     #: statement inside the body; a Go doc comment is a line above the
     #: declaration. Same idea, no shared shape - hence a function.
@@ -350,6 +356,7 @@ GO = Grammar(
     indexer_command=(
         'cd {root} && "$(go env GOPATH)/bin/scip-go" index ./... --output {output}'
     ),
+    body_name="<init>",
     lsp_command=("gopls",),
     lsp_install="go install golang.org/x/tools/gopls@latest",
     language_id="go",
