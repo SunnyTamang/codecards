@@ -26,11 +26,12 @@ MODULES = [
     "codecards",
     "codecards.cli",
     "codecards.report",
-    "codecards.extract",
-    "codecards.extract.discovery",
-    "codecards.extract.symbols",
-    "codecards.extract.calls",
-    "codecards.extract.highlight",
+    "codecards.parse",
+    "codecards.parse.grammars",
+    "codecards.parse.syntax",
+    "codecards.parse.structural",
+    "codecards.lsp",
+    "codecards.lsp.client",
     "codecards.graph.model",
     "codecards.graph.collapse",
     "codecards.graph.entrypoints",
@@ -72,7 +73,7 @@ def test_module_is_importable_via_from_syntax(module):
 def test_the_public_names_are_reachable_from_a_cold_start():
     result = import_in_fresh_interpreter(
         "from codecards.report import AnalysisReport;"
-        "from codecards.extract import analyze;"
+        "from codecards.lsp import analyze;"
         "from codecards.cli import main;"
         "print('ok')"
     )

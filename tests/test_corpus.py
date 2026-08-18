@@ -5,25 +5,38 @@ from pathlib import Path
 import pytest
 
 from codecards.cli import main
-from codecards.extract import analyze
 from codecards.graph.model import Confidence, validate
+from codecards.lsp import analyze
+from codecards.lsp.client import find
 from codecards.render.bundle import render_html
 from codecards.render.viewmodel import build_viewmodel
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent / "src" / "codecards"
 
+# The ratchet is only a ratchet if it runs. pyright is in the dev extra for
+# exactly this reason, so a skip here means a broken dev install rather than
+# an optional feature going untested.
+pytestmark = pytest.mark.skipif(
+    find(("pyright-langserver", "--stdio")) is None,
+    reason="no Python language server; install the dev extra")
+
 #: The ratchet. Raise it when the resolver improves; never lower it to make a
 #: build pass. A drop is a regression, not a threshold problem.
 #:
-#: Set just under the measured rate on this codebase (95.7% at the time of
-#: writing). A floor far below the real figure is not a ratchet: at 0.80 the
-#: resolver could lose fifteen points of accuracy and CI would stay green.
+#: Set just under the measured rate on this codebase. A floor far below the
+#: real figure is not a ratchet: at 0.80 the resolver could lose fifteen
+#: points of accuracy and CI would stay green.
 MIN_RESOLUTION_RATE = 0.95
 
 
 @pytest.fixture(scope="module")
 def dogfood():
     return analyze([SOURCE_ROOT])
+
+
+def qualname(node_id: str) -> str:
+    """Ids are rooted at the directory analysed, so `codecards.` is implied."""
+    return node_id
 
 
 def test_the_analyser_reads_its_own_source_without_skipping_anything(dogfood):
@@ -59,8 +72,9 @@ def test_known_call_edges_are_found(dogfood):
 def test_extraction_reaches_every_module(dogfood):
     graph, _report = dogfood
     modules = {n.id for n in graph.nodes.values() if n.kind.value == "module"}
-    for expected in ("codecards.extract.calls", "codecards.extract.highlight",
-                     "codecards.graph.collapse", "codecards.render.viewmodel"):
+    for expected in ("codecards.parse.structural", "codecards.parse.syntax",
+                     "codecards.lsp.client", "codecards.graph.collapse",
+                     "codecards.render.viewmodel"):
         assert expected in modules
 
 

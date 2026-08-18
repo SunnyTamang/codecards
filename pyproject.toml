@@ -5,19 +5,27 @@ build-backend = "hatchling.build"
 [project]
 name = "codecards"
 version = "0.1.0"
-description = "Static call-graph cards and flow walkthroughs for Python codebases"
+description = "Static call-graph cards and flow walkthroughs"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+# Reading structure is now the first thing every path does, whichever one
+# resolves the calls afterwards, so the parsers are not optional any more.
+dependencies = [
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-go>=0.23",
+]
 
 [project.scripts]
 codecards = "codecards.cli:run"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-playwright>=0.5", "ruff>=0.16,<0.17"]
-# Only for --scip. The default path reads Python with the standard library
-# and needs nothing installed.
-scip = ["tree-sitter>=0.23", "tree-sitter-python>=0.23", "tree-sitter-go>=0.23"]
+# pyright is here so the resolution ratchet in tests/test_corpus.py actually
+# runs. A ratchet that skips when a dependency is missing is not a ratchet.
+dev = [
+    "pytest>=8", "pytest-playwright>=0.5", "ruff>=0.16,<0.17",
+    "pyright>=1.1.400",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/codecards"]

@@ -100,17 +100,20 @@ def test_a_named_server_that_is_missing_is_an_error(tmp_path):
 
 
 def test_the_containment_tree_matches_the_other_tiers(tmp_path):
-    root = project(tmp_path, **{
-        "pkg____init__.py": "",
-        "pkg__inner____init__.py": "",
-        "pkg__inner__leaf.py": "def go():\n    pass\n",
-    })
-    # project() spells directories with "__", which cannot express __init__.py
-    for bad in root.rglob("*/init*.py"):
-        bad.rename(bad.parent / "__init__.py")
-    graph, _ = analyze([root], embed_source=False)
+    # Written directly: project() spells directories with "__", which cannot
+    # express a file actually called __init__.py.
+    for name, text in {
+        "pkg/__init__.py": "",
+        "pkg/inner/__init__.py": "",
+        "pkg/inner/leaf.py": "def go():\n    pass\n",
+    }.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    graph, _report = analyze([tmp_path], embed_source=False)
     validate(graph)
     assert graph.nodes["pkg.inner"].parent == "pkg"
+    assert graph.nodes["pkg.inner.leaf"].parent == "pkg.inner"
 
 
 def test_source_is_embedded_when_asked(tmp_path):

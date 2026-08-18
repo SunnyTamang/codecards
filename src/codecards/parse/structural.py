@@ -87,19 +87,36 @@ def source_files(
 def module_id_for(root: Path, path: Path, grammar: Grammar) -> str:
     """A name for the file, built from where it sits.
 
-    Without an index there is no authority on what a module is called - a Go
-    import path lives in go.mod, a Python package name in the directory that
-    stops having an __init__.py. The path relative to the root is the one
-    thing always available, and it is what a reader recognises anyway.
+    For Go the path relative to the root is all there is: an import path lives
+    in go.mod, and a package is a directory whatever it is called.
+
+    Python says more. A package is the run of directories that keep having an
+    `__init__.py`, so measuring from above that run recovers the name the
+    interpreter would use. Measuring from the analysed root instead makes the
+    ids depend on where you happened to point the tool - `codecards src` and
+    `codecards src/codecards` would disagree about what everything is called,
+    and the second would drop the package name entirely.
     """
-    relative = path.relative_to(root)
     if grammar.name == "go":
         # A Go package is a directory; the file inside it is not a namespace.
-        parent = relative.parent.as_posix()
+        parent = path.relative_to(root).parent.as_posix()
         return "" if parent == "." else parent
+    base = _package_root(path)
+    try:
+        relative = path.relative_to(base)
+    except ValueError:  # the file sits above its own package root
+        relative = path.relative_to(root)
     stem = relative.with_suffix("")
     parts = [p for p in stem.parts if p != "__init__"]
     return ".".join(parts)
+
+
+def _package_root(path: Path) -> Path:
+    """The directory a Python module's dotted name should be measured from."""
+    base = path.parent
+    while (base / "__init__.py").is_file() and base.parent != base:
+        base = base.parent
+    return base
 
 
 def analyze(

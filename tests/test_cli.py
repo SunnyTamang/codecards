@@ -29,11 +29,15 @@ def test_quiet_suppresses_the_summary(tmp_path, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_no_python_files_exits_one_with_a_clear_message(tmp_path, capsys):
+def test_nothing_readable_exits_one_and_names_what_it_reads(tmp_path, capsys):
+    """"Found nothing" reads as an empty directory. Naming the languages says
+    the real thing: there is no parser for whatever is in there."""
     root = project(tmp_path, {"notes.txt": "hi"})
     code = main([str(root), "--no-html"])
     assert code == 1
-    assert "no Python files" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "found no source it can read" in err
+    assert "python" in err
 
 
 def test_a_graph_with_no_edges_exits_one(tmp_path, capsys):

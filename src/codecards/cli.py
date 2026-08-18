@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .extract import analyze
 from .render.bundle import write_html
 from .render.viewmodel import build_viewmodel
 
@@ -18,8 +17,9 @@ LARGE_GRAPH_THRESHOLD = 5000
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="codecards",
-        description="Static call-graph cards and flow walkthroughs. Python is read "
-                    "directly; Go needs a SCIP index passed to --scip.",
+        description="Static call-graph cards and flow walkthroughs. Calls are "
+                    "resolved by a language server when one is installed, and "
+                    "matched by name when not.",
     )
     parser.add_argument("paths", nargs="+", type=Path, metavar="PATH",
                         help="files or directories to analyse")
@@ -39,15 +39,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-html", action="store_true",
                         help="analyse only, do not write an HTML file")
     parser.add_argument("--scip", type=Path, metavar="INDEX",
-                        help="resolve calls from a SCIP index rather than by "
-                             "reading the source. Required for Go. Adds calls "
-                             "made through an interface, which reading source "
-                             "cannot resolve. You build the index first")
+                        help="resolve calls from a SCIP index you built "
+                             "beforehand. Slower to set up than a language "
+                             "server and portable in a way a server is not: an "
+                             "index is a file, so the same graph builds in CI "
+                             "and on anyone else's machine")
     parser.add_argument("--lsp", action="store_true",
-                        help="resolve calls by asking a language server, which "
-                             "codecards starts itself. Needs the server "
-                             "installed but no index built, and never goes "
-                             "stale. Resolves more than either other path")
+                        help="require a language server: fail rather than fall "
+                             "back to matching calls by name. Use this in CI, "
+                             "where a quietly degraded graph is worse than a "
+                             "failed build")
+    parser.add_argument("--no-lsp", action="store_true", dest="no_lsp",
+                        help="never start a language server, even if one is "
+                             "installed")
     parser.add_argument("--version", action="version", version=f"codecards {__version__}")
     return parser
 
@@ -67,17 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    if args.lsp:
-        # Imported here so the default path never needs tree-sitter installed.
-        from .lsp import ServerUnusable  # noqa: PLC0415
-        from .lsp import analyze as analyze_lsp  # noqa: PLC0415
-        try:
-            graph, report = analyze_lsp(
-                roots=args.paths, embed_source=not args.no_source)
-        except ServerUnusable as exc:
-            print(f"codecards: {exc}", file=sys.stderr)
-            return 1
-    elif args.scip:
+    if args.scip:
         # Imported here so the default path never needs tree-sitter installed.
         from .scip import IndexUnusable  # noqa: PLC0415
         from .scip import analyze as analyze_scip  # noqa: PLC0415
@@ -96,31 +90,25 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         _warn_if_stale(report)
     else:
-        graph, report = analyze(
-            roots=args.paths,
-            excludes=tuple(args.exclude),
-            include_external=args.include_external,
-            embed_source=not args.no_source,
-        )
-        # No Python, but perhaps a language this can still read the shape of.
-        # Without an index nothing here is certain, so every edge it draws is
-        # marked as the guess it is - which is still a great deal more use
-        # than telling someone holding a Go project that it is empty.
-        if not graph.nodes:
+        resolved = _read_with_a_server(args)
+        if resolved is not None:
+            graph, report = resolved
+        else:
+            # No server, so names are all there is to go on. Nothing here is
+            # certain, so every edge is marked as the guess it is - still a
+            # great deal more use than telling someone their project is empty.
             structural = _read_structure(args)
-            if structural is not None:
-                graph, report = structural
+            if structural is None:
+                return _nothing_to_read(args)
+            graph, report = structural
 
     if not graph.nodes:
-        where = ", ".join(str(p) for p in args.paths)
-        print(f"codecards: no Python files found in {where}", file=sys.stderr)
-        _suggest_an_index(args.paths)
-        return 1
+        return _nothing_to_read(args)
 
     if not graph.edges:
         print(
-            "codecards: found Python files but no calls between them, so there is"
-            " nothing to draw. Check the paths, or widen them.",
+            "codecards: read the source but found no calls between anything in"
+            " it, so there is nothing to draw. Check the paths, or widen them.",
             file=sys.stderr,
         )
         return 1
@@ -149,29 +137,105 @@ def main(argv: list[str] | None = None) -> int:
 STALE_FILES_SHOWN = 5
 
 
-def _read_structure(args):
-    """Fall back to structure alone, when the parsers for it are installed.
+def _read_with_a_server(args):
+    """Resolve by asking a language server, when one is installed.
 
-    Returns None if there is nothing to read or tree-sitter is absent, leaving
-    the caller to print the message it would have printed anyway. An optional
-    dependency that is missing is not an error here - it is simply the reason
-    this cannot help.
+    Returns None to mean "fall back", which is not the same as failing: a
+    machine without a server should still get a graph. `--lsp` turns that
+    silence into an error, which is what a CI run wants; `--no-lsp` skips the
+    attempt entirely.
+
+    Which server is used is printed. codecards starts a subprocess here, and
+    a tool that quietly runs something on your machine is a tool you cannot
+    reason about.
     """
-    try:
-        from .parse import structural  # noqa: PLC0415
-    except ImportError:
+    if args.no_lsp:
         return None
-    if not structural.source_files([Path(p) for p in args.paths]):
+    from . import lsp  # noqa: PLC0415 - only when a graph is actually built
+
+    server = lsp.server_for(args.paths)
+    if server is None:
+        if args.lsp:
+            print("codecards: --lsp was asked for and no language server is "
+                  "installed for this project.", file=sys.stderr)
+            _suggest_a_server(args.paths)
+            raise SystemExit(1)
+        return None
+
+    print(f"codecards: resolving with {server[0]}", file=sys.stderr)
+    try:
+        return lsp.analyze(
+            roots=args.paths,
+            server=server,
+            excludes=tuple(args.exclude),
+            include_external=args.include_external,
+            embed_source=not args.no_source,
+        )
+    except lsp.ServerUnusable as exc:
+        print(f"codecards: {exc}", file=sys.stderr)
+        if args.lsp:
+            raise SystemExit(1) from None
+        print("codecards: falling back to matching calls by name.",
+              file=sys.stderr)
+        return None
+
+
+def _suggest_a_server(paths) -> None:
+    """Name the server this project would need, and what installs it."""
+    from .parse import grammars  # noqa: PLC0415
+
+    for path in paths:
+        if not path.is_dir():
+            continue
+        for grammar, count in grammars.for_tree(path):
+            if not grammar.lsp_command:
+                continue
+            print(f"\n  {count} {grammar.name.title()} file"
+                  f"{'' if count == 1 else 's'} are here, resolved by "
+                  f"{grammar.lsp_command[0]}:\n", file=sys.stderr)
+            if grammar.lsp_install:
+                print(f"    {grammar.lsp_install}\n", file=sys.stderr)
+            return
+
+
+def _nothing_to_read(args) -> int:
+    """Nothing any grammar recognises. Say which languages are read, since
+    "found nothing" reads as an empty directory rather than as a language
+    this tool has no parser for."""
+    where = ", ".join(str(p) for p in args.paths)
+    from .parse import grammars  # noqa: PLC0415
+
+    known = ", ".join(sorted(g.name for g in grammars.ALL))
+    print(f"codecards: found no source it can read in {where}."
+          f" It reads: {known}.", file=sys.stderr)
+    return 1
+
+
+def _read_structure(args):
+    """Fall back to names alone, when nothing better is available.
+
+    Returns None when there is nothing any grammar recognises, leaving the
+    caller to say so. Every edge this draws is a guess and is marked as one,
+    which is still a great deal more use than refusing to draw anything.
+    """
+    from .parse import structural  # noqa: PLC0415
+
+    excludes = tuple(args.exclude)
+    if not structural.source_files([Path(p) for p in args.paths], excludes):
         return None
     graph, report = structural.analyze(
-        roots=args.paths, embed_source=not args.no_source)
+        roots=args.paths, excludes=excludes,
+        embed_source=not args.no_source)
     if not graph.nodes:
         return None
+    # A server is the cheaper of the two upgrades - nothing to build and
+    # nothing to keep fresh - so it is offered first.
     print(
-        "codecards: no index, so calls are matched by name and every edge is"
-        " marked inferred or ambiguous. Build an index for a resolved graph:",
+        "codecards: no language server, so calls are matched by name and every"
+        " edge is marked inferred or ambiguous. For a resolved graph:",
         file=sys.stderr,
     )
+    _suggest_a_server(args.paths)
     _suggest_an_index(args.paths)
     return graph, report
 
