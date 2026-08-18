@@ -12,6 +12,8 @@ which servers happen to be installed on the machine running the tests.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from codecards.cli import main
@@ -84,3 +86,36 @@ def test_a_resolved_graph_is_not_nagged_about_indexes(tmp_path, capsys):
     err = capsys.readouterr().err.lower()
     assert "scip" not in err
     assert "matched by name" not in err
+
+
+# -- the command we print has to work when it is run -------------------------
+
+def test_the_rebuild_command_names_a_resolved_path(tmp_path):
+    """scip-python resolves --cwd itself and gets it wrong twice over: a
+    relative path and a symlinked one both produce a valid, empty index and
+    exit 0. On macOS /tmp is a symlink, so a plausible invocation lands in
+    the silent case without anything looking wrong."""
+    from codecards.scip import reindex_command
+
+    link = tmp_path / "link"
+    real = tmp_path / "real"
+    real.mkdir()
+    link.symlink_to(real)
+
+    command = reindex_command(Path("out.scip"), link, "scip-python")
+    assert command is not None
+    assert str(real.resolve()) in command, command
+    assert " --cwd ." not in command
+    # and the output too, since it is interpreted relative to --cwd
+    assert str((Path("out.scip")).resolve()) in command
+
+
+def test_the_index_command_printed_for_a_project_is_absolute(tmp_path, capsys):
+    """The path a reader typed is whatever they typed. Formatting it straight
+    into the command hands them the failing form."""
+    pytest.importorskip("tree_sitter_go")
+    go_project(tmp_path)
+    main([str(tmp_path), "--no-html", "--no-lsp", "--quiet"])
+    err = capsys.readouterr().err
+    line = next(x for x in err.splitlines() if "scip-go" in x and "index" in x)
+    assert str(tmp_path.resolve()) in line, line

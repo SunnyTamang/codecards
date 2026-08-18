@@ -125,7 +125,14 @@ def reindex_command(index_path: Path, root: Path, tool: str | None) -> str | Non
     template = _INVOCATIONS.get(tool or "")
     if template is None:
         return None
-    return template.format(root=root, output=index_path)
+    # Resolved, not merely absolute. scip-python interprets --cwd itself and
+    # gets it wrong two ways, both silently: a relative path and a symlinked
+    # one each produce a valid index holding nothing, and exit 0. On macOS
+    # /tmp is a symlink to /private/tmp, so an ordinary-looking invocation
+    # lands in the silent case with nothing to suggest anything went wrong.
+    # --output is interpreted relative to --cwd, so it needs the same.
+    return template.format(root=Path(root).resolve(),
+                           output=Path(index_path).resolve())
 
 
 def analyze(
@@ -138,10 +145,19 @@ def analyze(
     index = scip.read(Path(index_path))
     documents = list(index.documents)
     if scip.is_empty(documents):
+        # Every known cause, because an indexer reports none of them: it
+        # prints the right file count, writes a valid index holding nothing,
+        # and exits 0. Naming only one sends the reader to check that one and
+        # conclude the tool is broken when it was not the cause.
         raise IndexUnusable(
-            f"{index_path} contains no occurrences. An indexer that cannot load "
-            "the project writes a valid but empty index and exits successfully; "
-            "check that its dependencies are installed."
+            f"{index_path} holds no occurrences, so the indexer that wrote it "
+            "resolved nothing. It exits successfully either way, so the "
+            "likely causes are:\n"
+            "  - it ran with a relative or symlinked directory. scip-python "
+            "needs a fully resolved --cwd, and on macOS /tmp is a symlink\n"
+            "  - it ran outside the environment the project builds in, so it "
+            "could not import what the code imports\n"
+            "  - its own dependencies are missing"
         )
     _check_root_matches(index, root, index_path)
 

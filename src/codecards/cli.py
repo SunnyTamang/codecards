@@ -260,7 +260,12 @@ def _suggest_an_index(paths, output: Path | None = None) -> None:
     for grammar, count in found:
         if grammar.indexer_command is None or grammar.name == "python":
             continue
-        target = output or Path("index.scip")
+        # Resolved rather than as typed. An indexer interprets these paths
+        # itself, and scip-python gets both a relative one and a symlinked
+        # one wrong the same silent way: a valid index holding nothing, exit
+        # 0. Handing someone the form that fails is worse than saying nothing.
+        target = (output or Path("index.scip")).resolve()
+        where = Path(paths[0]).resolve()
         print(
             f"\n  {count} {grammar.name.title()} file{'' if count == 1 else 's'} are"
             f" here. {grammar.name.title()} is read through a SCIP index:\n",
@@ -270,7 +275,7 @@ def _suggest_an_index(paths, output: Path | None = None) -> None:
             print(f"    {grammar.indexer_install}", file=sys.stderr)
         print(
             "    "
-            + grammar.indexer_command.format(root=paths[0], output=target)
+            + grammar.indexer_command.format(root=where, output=target)
             + f"\n\n  then: codecards {paths[0]} --scip {target}",
             file=sys.stderr,
         )
