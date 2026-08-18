@@ -59,14 +59,33 @@ def server_for(paths) -> tuple[str, ...] | None:
     return None
 
 
+#: Synthetic container grouping stdlib and third-party leaf nodes, matching
+#: what the Python path has always called it.
+EXTERNAL_ROOT_ID = "<external>"
+
+
 def _path_of(uri: str) -> str:
     return unquote(urlparse(uri).path)
+
+
+def _external_name(uri: str, called: str) -> str:
+    """A readable name for something defined outside the analysed tree.
+
+    The server says where the definition lives and the call site says what
+    was named, so `os.getcwd()` becomes `os.getcwd` - the same shape the
+    Python resolver produces, rather than an absolute path into a virtualenv.
+    """
+    where = Path(_path_of(uri))
+    holder = where.parent.name if where.stem == "__init__" else where.stem
+    return f"{holder}.{called}" if holder else called
 
 
 def analyze(
     roots,
     *,
     server: tuple[str, ...] | None = None,
+    excludes: tuple[str, ...] | list[str] = (),
+    include_external: bool = False,
     embed_source: bool = True,
 ) -> tuple[CodeGraph, AnalysisReport]:
     # Resolved before anything else touches them. The protocol addresses every
@@ -74,7 +93,7 @@ def analyze(
     # otherwise dies inside pathlib with nothing to connect it to the flag.
     absolute = [Path(r).resolve() for r in roots]
     root = absolute[0]
-    files = source_files(absolute)
+    files = source_files(absolute, excludes)
     if not files:
         raise ServerUnusable(f"no files a grammar recognises under {root}")
 
@@ -160,6 +179,7 @@ def analyze(
 
         by_confidence: dict[str, int] = {}
         merged: dict[tuple[str, str], list[CallSite]] = {}
+        external_edges: dict[tuple[str, str], list[CallSite]] = {}
 
         for tree, source_bytes, grammar, module, relative, path in parsed:
             enclosing = _enclosing_index(nodes, relative, module)
@@ -170,21 +190,31 @@ def analyze(
                     # other tier also declines to draw one.
                     _count(by_confidence, "unresolved")
                     continue
-                target = _resolve(client, path, site, by_position)
-                if target is None:
+                found = _resolve(client, path, site, by_position)
+                if found is None:
                     _count(by_confidence, "unresolved")
                     continue
-                if target is _EXTERNAL:
+                where, target = found
+                call_site = CallSite(line=site.line,
+                                     in_conditional=site.in_conditional,
+                                     in_loop=site.in_loop)
+                if where == "external":
                     _count(by_confidence, "external")
+                    if not include_external:
+                        continue
+                    target = _external_name(target, site.text)
+                    _add_external_node(nodes, target)
+                    external_edges.setdefault((source_id, target), []).append(call_site)
                     continue
                 _count(by_confidence, "resolved")
-                merged.setdefault((source_id, target), []).append(
-                    CallSite(line=site.line, in_conditional=site.in_conditional,
-                             in_loop=site.in_loop))
+                merged.setdefault((source_id, target), []).append(call_site)
 
     edges = [Edge(source=s, target=t, confidence=Confidence.RESOLVED,
                   call_sites=tuple(sites))
              for (s, t), sites in sorted(merged.items())]
+    edges += [Edge(source=s, target=t, confidence=Confidence.EXTERNAL,
+                   call_sites=tuple(sites))
+              for (s, t), sites in sorted(external_edges.items())]
 
     hints = _entry_hints(parsed, nodes)
     graph = CodeGraph(nodes=nodes, edges=edges, entry_hints=hints)
@@ -198,11 +228,6 @@ def analyze(
         edge_count=len(edges),
     )
     return graph, report
-
-
-#: Distinguishes "the server named something outside this project" from "the
-#: server had no answer". Both draw nothing; only one is a gap in the analysis.
-_EXTERNAL = object()
 
 
 def _count(tally: dict[str, int], key: str) -> None:
@@ -237,8 +262,24 @@ def _enclosing_index(nodes, relative, module):
     return enclosing
 
 
+def _add_external_node(nodes, qualname: str) -> None:
+    if EXTERNAL_ROOT_ID not in nodes:
+        nodes[EXTERNAL_ROOT_ID] = Node(
+            id=EXTERNAL_ROOT_ID, kind=NodeKind.PACKAGE, name="external")
+    if qualname not in nodes:
+        nodes[qualname] = Node(
+            id=qualname, kind=NodeKind.FUNCTION,
+            name=qualname.rsplit(".", 1)[-1], parent=EXTERNAL_ROOT_ID)
+
+
 def _resolve(client, path, site, by_position):
-    """What the name at this call site refers to, as a node id."""
+    """Where the name at this call site is defined.
+
+    ("internal", node id) when it lands on a card, ("external", uri) when the
+    server named somewhere outside the analysed tree, and None when it had no
+    answer. The last two both draw nothing by default, but only one of them is
+    a gap in the analysis, so the report must not conflate them.
+    """
     reply = client.request("textDocument/definition", {
         "textDocument": {"uri": path.as_uri()},
         "position": {"line": site.name_line, "character": site.name_char},
@@ -255,7 +296,8 @@ def _resolve(client, path, site, by_position):
     span = first.get("range") or first.get("targetSelectionRange")
     if not uri or not span:
         return None
-    return by_position.get((_path_of(uri), span["start"]["line"]), _EXTERNAL)
+    target = by_position.get((_path_of(uri), span["start"]["line"]))
+    return ("internal", target) if target else ("external", uri)
 
 
 def _entry_hints(parsed, nodes) -> list[EntryHint]:

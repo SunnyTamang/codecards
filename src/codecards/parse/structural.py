@@ -15,6 +15,7 @@ seeing one at all.
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 from ..graph.model import (
@@ -54,8 +55,15 @@ _KINDS = {
 }
 
 
-def source_files(roots: list[Path]) -> list[tuple[Path, Path, Grammar]]:
-    """(root, file, grammar) for everything a grammar claims, vendored code out."""
+def source_files(
+    roots: list[Path], excludes: tuple[str, ...] | list[str] = ()
+) -> list[tuple[Path, Path, Grammar]]:
+    """(root, file, grammar) for everything a grammar claims, vendored code out.
+
+    `excludes` are globs matched against the path relative to its root, the
+    same way --exclude has always worked on the Python path.
+    """
+    patterns = tuple(excludes)
     found: list[tuple[Path, Path, Grammar]] = []
     for root in roots:
         base = Path(root)
@@ -63,8 +71,12 @@ def source_files(roots: list[Path]) -> list[tuple[Path, Path, Grammar]]:
         for path in candidates:
             if not path.is_file():
                 continue
+            relative = path.relative_to(base)
             if any(part in SKIP_DIRECTORIES or part.startswith(".")
-                   for part in path.relative_to(base).parts[:-1]):
+                   for part in relative.parts[:-1]):
+                continue
+            if any(fnmatch.fnmatch(relative.as_posix(), pattern)
+                   for pattern in patterns):
                 continue
             grammar = grammars.for_path(path.name)
             if grammar is not None:
@@ -93,9 +105,10 @@ def module_id_for(root: Path, path: Path, grammar: Grammar) -> str:
 def analyze(
     roots: list[Path],
     *,
+    excludes: tuple[str, ...] | list[str] = (),
     embed_source: bool = True,
 ) -> tuple[CodeGraph, AnalysisReport]:
-    files = source_files([Path(r) for r in roots])
+    files = source_files([Path(r) for r in roots], excludes)
     nodes: dict[str, Node] = {}
     #: simple name -> the qualnames defining it, for the name match below.
     by_name: dict[str, list[str]] = {}
