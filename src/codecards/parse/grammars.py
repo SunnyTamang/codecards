@@ -109,6 +109,11 @@ class Grammar:
     #: Definitions that are themselves doors in. Go's `main` is one.
     entry_definitions: Callable[..., list] | None = None
 
+    #: Every import in a file, as (line, level, module, names). An import
+    #: runs the imported module's top level, so with module bodies it is a
+    #: call like any other rather than a second kind of relationship.
+    imports: Callable[..., tuple] | None = None
+
     #: What is attached to a definition without calling it. A Python
     #: decorator receives the function, so it is a reference and keeps the
     #: definition from reading as dead code. Go has no equivalent, which is
@@ -185,6 +190,53 @@ def _python_decorators(node, text, source: bytes) -> tuple[str, ...]:
         name = text(expression, source).strip()
         if name:
             found.append(name)
+    return tuple(found)
+
+
+def _python_imports(tree, text, source: bytes) -> tuple:
+    """Every import, as (line, level, module, names).
+
+    `level` counts the leading dots, so 0 is absolute, 1 is the current
+    package and 2 its parent. `names` is what followed `import`, which may be
+    modules or may be ordinary names - nothing in the syntax says which, so
+    resolution has to decide against the set of modules that actually exist.
+
+    Go is absent on purpose. Its import paths resolve through go.mod, and a
+    guess at the mapping from an import path to a directory would be wrong
+    quietly, which is worse than drawing nothing.
+    """
+    found = []
+
+    def dotted(node) -> str:
+        if node.type == "aliased_import":
+            inner = node.child_by_field_name("name")
+            return text(inner, source) if inner is not None else ""
+        return text(node, source)
+
+    def walk(node):
+        if node.type == "import_statement":
+            for child in node.children:
+                if child.type in ("dotted_name", "aliased_import"):
+                    found.append((node.start_point[0] + 1, 0, dotted(child), ()))
+        elif node.type == "import_from_statement":
+            level, module, names = 0, "", []
+            for child in node.children:
+                if child.type == "relative_import":
+                    raw = text(child, source)
+                    level = len(raw) - len(raw.lstrip("."))
+                    module = raw.lstrip(".")
+                elif child.type == "dotted_name":
+                    if not module and level == 0 and not names:
+                        module = text(child, source)
+                    else:
+                        names.append(text(child, source))
+                elif child.type == "aliased_import":
+                    names.append(dotted(child))
+            found.append((node.start_point[0] + 1, level, module, tuple(names)))
+        for child in node.children:
+            walk(child)
+
+    walk(tree.root_node)
     return tuple(found)
 
 
@@ -314,6 +366,7 @@ PYTHON = Grammar(
     language_id="python",
     docstring=_python_docstring,
     decorators=_python_decorators,
+    imports=_python_imports,
     entry_calls=_python_main_block,
 )
 

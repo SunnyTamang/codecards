@@ -250,3 +250,56 @@ def test_a_module_that_only_defines_things_gets_no_body(tmp_path):
     pytest.importorskip("tree_sitter_python")
     graph, _ = project(tmp_path, **{"quiet.py": "def a():\n    pass\n"})
     assert "quiet.<module>" not in graph.nodes
+
+
+SIDE_EFFECT = {
+    "pkg/__init__.py": "",
+    "pkg/registry.py": "def register(name):\n    return name\n",
+    "pkg/checks/__init__.py": "from . import length\n",
+    "pkg/checks/length.py": "from ..registry import register\n\n\ndef check():\n    pass\n",
+}
+
+
+def written(tmp_path, files):
+    for name, text in files.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    return structural.analyze(roots=[tmp_path], embed_source=False)
+
+
+def test_an_import_is_a_call_to_the_module_body(tmp_path):
+    """`import x` runs x's top level exactly once. Modelling it as a call
+    makes the import graph a subgraph of the call graph rather than a second
+    graph to build and reconcile."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, SIDE_EFFECT)
+    validate(graph)
+    pairs = {(e.source, e.target) for e in graph.edges}
+    assert ("pkg.checks.<module>", "pkg.checks.length.<module>") in pairs
+
+
+def test_a_relative_import_climbs_the_right_number_of_levels(tmp_path):
+    """`from ..registry import register` in pkg/checks/length.py means
+    pkg.registry, not pkg.checks.registry."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, SIDE_EFFECT)
+    pairs = {(e.source, e.target) for e in graph.edges}
+    assert ("pkg.checks.length.<module>", "pkg.registry.<module>") in pairs
+
+
+def test_importing_a_name_points_at_the_module_holding_it(tmp_path):
+    """`from ..registry import register` imports a function, not a module, so
+    there is no pkg.registry.register module to point at - the edge lands on
+    the module whose body defines it."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, SIDE_EFFECT)
+    assert "pkg.registry.register.<module>" not in graph.nodes
+
+
+def test_a_library_import_draws_nothing(tmp_path):
+    """os is not in the analysed tree. Drawing a leaf for it puts the biggest
+    node on the canvas at the top of every file."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, {"m.py": "import os\n\n\ndef a():\n    pass\n"})
+    assert not any("os" in e.target for e in graph.edges)

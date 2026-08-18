@@ -36,10 +36,13 @@ from ..parse import grammars, syntax
 from ..parse.structural import (
     _KINDS,
     MAX_SOURCE_LINES,
+    SourceUnit,
     _add_missing_holders,
     _add_package_ancestors,
+    _file_of,
     _holder,
     implicitly_called,
+    imported_modules,
     is_dunder,
     module_body,
     module_id_for,
@@ -132,7 +135,10 @@ def analyze(
             tree = syntax.parse(grammar, source_bytes)
             module = module_id_for(base, path, grammar)
             relative = path.relative_to(base).as_posix()
-            parsed.append((tree, source_bytes, grammar, module, relative, path))
+            parsed.append(SourceUnit(
+                tree=tree, source=source_bytes, grammar=grammar, module=module,
+                relative=relative, is_package=path.name == "__init__.py",
+                path=path))
             client.open(path, grammar.language_id or grammar.name)
 
             if module and module not in nodes:
@@ -184,7 +190,9 @@ def analyze(
         merged: dict[tuple[str, str], list[CallSite]] = {}
         external_edges: dict[tuple[str, str], list[CallSite]] = {}
 
-        for tree, source_bytes, grammar, module, relative, path in parsed:
+        for unit in parsed:
+            tree, source_bytes, grammar = unit.tree, unit.source, unit.grammar
+            module, relative, path = unit.module, unit.relative, unit.path
             enclosing = _enclosing_index(nodes, relative, module)
             for site in syntax.call_sites(grammar, tree, source_bytes):
                 source_id = enclosing(site.line)
@@ -209,6 +217,17 @@ def analyze(
                     continue
                 _count(by_confidence, "resolved")
                 merged.setdefault((source_id, target), []).append(call_site)
+
+            # An import runs the imported module's top level, which the
+            # syntax names outright - no server round trip needed.
+            for line, target_module in imported_modules(
+                    unit, set(module_grammars)):
+                _count(by_confidence, "resolved")
+                merged.setdefault(
+                    (module_body(nodes, module, grammar, relative),
+                     module_body(nodes, target_module, grammar,
+                                 _file_of(nodes, target_module))), []).append(
+                        CallSite(line=line, in_conditional=False, in_loop=False))
 
     edges = [Edge(source=s, target=t, confidence=Confidence.RESOLVED,
                   call_sites=tuple(sites))
@@ -303,7 +322,9 @@ def _resolve(client, path, site, by_position):
 
 def _entry_hints(parsed, nodes) -> list[EntryHint]:
     hints: list[EntryHint] = []
-    for tree, source_bytes, grammar, module, _relative, _path in parsed:
+    for unit in parsed:
+        tree, source_bytes, grammar, module = (
+            unit.tree, unit.source, unit.grammar, unit.module)
         for definition in syntax.entry_definitions(grammar, tree, source_bytes):
             qualname = f"{module}.{definition.name}" if module else definition.name
             if qualname in nodes:

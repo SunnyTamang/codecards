@@ -30,6 +30,7 @@ CC.controls = (function () {
     ['edge inferred', 'dashed line', 'one definition has that name, so a guess'],
     ['edge ambiguous', 'faint dashes', 'several candidates, none trusted, hidden by default'],
     ['weight', '7', 'how many calls this one line stands for'],
+    ['body', '<module>', 'a module’s own top-level code, which runs on import'],
     ['chip entry', 'entry', 'a way into the program'],
     ['chip unused', 'unused', 'nothing calls it, and the language does not either'],
     ['badge', '\u2193 \u2191 \u21ba', 'calls in, calls out, calls that stay inside'],

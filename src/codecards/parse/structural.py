@@ -16,6 +16,7 @@ seeing one at all.
 from __future__ import annotations
 
 import fnmatch
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..graph.model import (
@@ -141,6 +142,76 @@ def module_body(nodes, module: str, grammar: Grammar, relative: str) -> str:
     return body_id
 
 
+@dataclass(frozen=True)
+class SourceUnit:
+    """One parsed file and the few facts every pass needs about it.
+
+    A tuple grew to six fields and then seven, which is the point at which
+    the reader has to count commas to know what they are holding.
+    """
+
+    tree: object
+    source: bytes
+    grammar: Grammar
+    module: str
+    relative: str
+    is_package: bool
+    path: Path | None = None
+
+
+def imported_modules(unit: SourceUnit, known: set[str]) -> list[tuple[int, str]]:
+    """(line, module id) for every import that lands inside the analysed tree.
+
+    Nothing in `from x import a` says whether `a` is a submodule or an
+    ordinary name, so both readings are tried against the modules that
+    actually exist: `x.a` if that is one, otherwise `x` itself, which is the
+    module whose body defines the name either way.
+
+    A library import resolves to nothing here and draws nothing. Naming those
+    would put `os` and `__future__` among the largest nodes on the canvas,
+    since size is fan-in and they are imported everywhere.
+    """
+    if unit.grammar.imports is None:
+        return []
+
+    def text(node, src):
+        return src[node.start_byte:node.end_byte].decode("utf-8", "replace")
+
+    separator = unit.grammar.namespace_separator
+    # A package's __init__ sits inside the package; any other module sits
+    # beside its siblings, one level down from it.
+    package = (unit.module if unit.is_package
+               else unit.module.rpartition(separator)[0])
+
+    found: list[tuple[int, str]] = []
+    for line, level, dotted, names in unit.grammar.imports(
+            unit.tree, text, unit.source):
+        if level:
+            base = package
+            for _ in range(level - 1):
+                base = base.rpartition(separator)[0]
+        else:
+            base = ""
+        prefix = separator.join(p for p in (base, dotted) if p)
+        candidates = [separator.join((prefix, n)) for n in names if prefix]
+        candidates.append(prefix)
+        target = next(
+            (c for c in candidates if c in known and c != unit.module), None)
+        if target:
+            found.append((line, target))
+    return found
+
+
+def _file_of(nodes, module: str) -> str:
+    """The file a module node was read from, for a body created on its behalf.
+
+    An import needs somewhere to point, and the target's body may not exist
+    yet - most modules only define things, so nothing had created one.
+    """
+    node = nodes.get(module)
+    return node.location.file if node is not None and node.location else ""
+
+
 def source_files(
     roots: list[Path], excludes: tuple[str, ...] | list[str] = ()
 ) -> list[tuple[Path, Path, Grammar]]:
@@ -228,7 +299,9 @@ def analyze(
         tree = syntax.parse(grammar, source_bytes)
         module = module_id_for(root, path, grammar)
         relative = path.relative_to(root).as_posix()
-        parsed.append((tree, source_bytes, grammar, module, relative))
+        parsed.append(SourceUnit(
+            tree=tree, source=source_bytes, grammar=grammar, module=module,
+            relative=relative, is_package=path.name == "__init__.py"))
 
         if module and module not in nodes:
             separator = grammar.namespace_separator
@@ -282,7 +355,9 @@ def analyze(
     by_confidence: dict[str, int] = {}
     merged: dict[tuple[str, str, Confidence], list[CallSite]] = {}
 
-    for tree, source_bytes, grammar, module, relative in parsed:
+    for unit in parsed:
+        tree, source_bytes, grammar = unit.tree, unit.source, unit.grammar
+        module, relative = unit.module, unit.relative
         spans = sorted(((n.location.line_start, n.location.line_end, n.id)
                         for n in nodes.values()
                         if n.location and n.location.file == relative and n.id != module),
@@ -315,12 +390,26 @@ def analyze(
             for target in candidates:
                 merged.setdefault((caller, target, confidence), []).append(call_site)
 
+        # An import runs the imported module's top level. Which module it
+        # names is decided by the syntax, not guessed from a name, so these
+        # are resolved even on the tier where nothing else is.
+        for line, target_module in imported_modules(unit, set(module_grammars)):
+            source_body = module_body(nodes, module, grammar, relative)
+            target_body = module_body(nodes, target_module, grammar,
+                                      _file_of(nodes, target_module))
+            by_confidence["resolved"] = by_confidence.get("resolved", 0) + 1
+            merged.setdefault(
+                (source_body, target_body, Confidence.RESOLVED), []).append(
+                    CallSite(line=line, in_conditional=False, in_loop=False))
+
     edges = [Edge(source=s, target=t, confidence=c, call_sites=tuple(sites))
              for (s, t, c), sites in sorted(merged.items(),
                                             key=lambda kv: (kv[0][0], kv[0][1], kv[0][2].value))]
 
     hints: list[EntryHint] = []
-    for tree, source_bytes, grammar, module, _relative in parsed:
+    for unit in parsed:
+        tree, source_bytes, grammar, module = (
+            unit.tree, unit.source, unit.grammar, unit.module)
         for definition in syntax.entry_definitions(grammar, tree, source_bytes):
             qualname = f"{module}.{definition.name}" if module else definition.name
             if qualname in nodes:
