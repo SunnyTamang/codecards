@@ -264,7 +264,13 @@ def module_id_for(root: Path, path: Path, grammar: Grammar) -> str:
     if grammar.name == "go":
         # A Go package is a directory; the file inside it is not a namespace.
         parent = path.relative_to(root).parent.as_posix()
-        return "" if parent == "." else parent
+        # A file sitting directly in the analysed directory has no relative
+        # path to be named by, and an empty name means no module node at all -
+        # so every definition in it becomes a root-level card. bubbletea keeps
+        # 31 files there, which opened the graph on 174 loose cards instead of
+        # a handful of packages. The directory's own name is what a reader
+        # calls that package anyway.
+        return root.name if parent == "." else parent
     base = _package_root(path)
     try:
         relative = path.relative_to(base)

@@ -92,7 +92,22 @@ def test_a_doc_comment_still_reaches_the_card(tmp_path):
 
 def test_main_is_still_a_door(tmp_path):
     graph, _ = project(tmp_path, **{"main.go": "package main\n\nfunc main() {}\n"})
-    assert [h.node_id for h in graph.entry_hints] == ["main"]
+    assert [h.node_id for h in graph.entry_hints] == [f"{tmp_path.name}.main"]
+
+
+def test_a_go_file_in_the_analysed_directory_still_gets_a_package(tmp_path):
+    """A file with no relative path beneath the root used to get an empty
+    module name, which means no module node, which means every definition in
+    it becomes a top-level card. bubbletea keeps 31 files there and opened on
+    176 cards, 92 of them loose functions, instead of three packages."""
+    graph, _ = project(tmp_path, **{
+        "tea.go": "package tea\n\nfunc Run() {}\n",
+        "examples__demo__main.go": "package main\n\nfunc main() {}\n",
+    })
+    validate(graph)
+    assert graph.nodes[f"{tmp_path.name}.Run"].parent == tmp_path.name
+    assert graph.nodes[tmp_path.name].kind is NodeKind.MODULE
+    assert "examples/demo.main" in graph.nodes
 
 
 def test_a_nested_package_contains_the_modules_below_it(tmp_path):
