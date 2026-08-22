@@ -10,6 +10,7 @@ import pytest
 
 pytest.importorskip("tree_sitter_go")
 
+from codecards.graph.cycles import in_a_cycle
 from codecards.graph.model import (
     CALLABLE_KINDS,
     CONTAINER_KINDS,
@@ -319,6 +320,35 @@ def test_a_library_import_draws_nothing(tmp_path):
     pytest.importorskip("tree_sitter_python")
     graph, _ = written(tmp_path, {"m.py": "import os\n\n\ndef a():\n    pass\n"})
     assert not any("os" in e.target for e in graph.edges)
+
+
+DEFERRED = {
+    "pkg/__init__.py": "",
+    "pkg/a.py": "def build():\n    from . import b\n\n    return b.make()\n",
+    "pkg/b.py": "from .a import build\n\n\ndef make():\n    return build\n",
+}
+
+
+def test_an_import_inside_a_function_leaves_from_that_function(tmp_path):
+    """An import is a call, and a call belongs to whoever makes it. A deferred
+    import runs when the function runs, not when the file loads."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, DEFERRED)
+    validate(graph)
+    pairs = {(e.source, e.target) for e in graph.edges}
+    assert ("pkg.a.build", "pkg.b.<module>") in pairs
+    assert ("pkg.a.<module>", "pkg.b.<module>") not in pairs
+
+
+def test_a_deferred_import_does_not_fabricate_a_ring(tmp_path):
+    """Why the line above matters. Deferring an import is exactly how a
+    circular import is avoided, so charging it to the module body draws the
+    dependency the author wrote the code to prevent. This project's own graph
+    grew a ring that way, and it was the only ring the language-server tier
+    reported that was not plain recursion."""
+    pytest.importorskip("tree_sitter_python")
+    graph, _ = written(tmp_path, DEFERRED)
+    assert not in_a_cycle(graph)
 
 
 def test_importing_several_modules_at_once_draws_all_of_them(tmp_path):

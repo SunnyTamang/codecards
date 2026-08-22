@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("tree_sitter_python")
 
+from codecards.graph.cycles import in_a_cycle
 from codecards.graph.model import CALLABLE_KINDS, Confidence, validate
 from codecards.lsp import ServerUnusable, analyze
 from codecards.lsp.client import find
@@ -148,3 +149,24 @@ def test_calling_a_parameter_is_not_the_function_calling_itself(tmp_path):
     # `walk` really does call itself; `render` really does not.
     assert "m.walk" in loops
     assert "m.render" not in loops
+
+
+def test_a_deferred_import_leaves_from_the_function_that_defers_it(tmp_path):
+    """Both tiers share `imported_modules`, so both charged every import to
+    the module body. Deferring an import is how a circular import is avoided,
+    so that drew the dependency the code exists to prevent, and marked the
+    pair a ring. It was the only ring this project's own graph reported on
+    this tier that was not plain recursion."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "a.py").write_text(
+        "def build():\n    from . import b\n\n    return b.make()\n")
+    (pkg / "b.py").write_text(
+        "from .a import build\n\n\ndef make():\n    return build\n")
+    root = tmp_path
+    graph, _report = analyze([root], embed_source=False)
+    pairs = {(e.source, e.target) for e in graph.edges}
+    assert ("pkg.a.build", "pkg.b.<module>") in pairs
+    assert ("pkg.a.<module>", "pkg.b.<module>") not in pairs
+    assert not in_a_cycle(graph)

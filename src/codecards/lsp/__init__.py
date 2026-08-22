@@ -221,11 +221,16 @@ def analyze(
 
             # An import runs the imported module's top level, which the
             # syntax names outright - no server round trip needed.
+            # An import inside a function is that function's call. See the
+            # matching note in parse/structural.py: deferring an import is
+            # how a circular import is avoided, so charging one to the
+            # module body draws the dependency the code exists to prevent.
             for line, target_module in imported_modules(
                     unit, set(module_grammars)):
                 _count(by_confidence, "resolved")
                 merged.setdefault(
-                    (module_body(nodes, module, grammar, relative),
+                    (enclosing(line)
+                     or module_body(nodes, module, grammar, relative),
                      module_body(nodes, target_module, grammar,
                                  _file_of(nodes, target_module))), []).append(
                         CallSite(line=line, in_conditional=False, in_loop=False))

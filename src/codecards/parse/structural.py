@@ -407,7 +407,14 @@ def analyze(
         # names is decided by the syntax, not guessed from a name, so these
         # are resolved even on the tier where nothing else is.
         for line, target_module in imported_modules(unit, set(module_grammars)):
-            source_body = module_body(nodes, module, grammar, relative)
+            # An import inside a function is that function's call, made when
+            # it runs. Deferring an import is how a circular import is
+            # avoided, so charging one to the module body draws the exact
+            # dependency the author wrote the code to prevent - and marks it
+            # a ring. `or` is lazy, so no body is created for a file that
+            # only defers.
+            source_body = enclosing(line) or module_body(
+                nodes, module, grammar, relative)
             target_body = module_body(nodes, target_module, grammar,
                                       _file_of(nodes, target_module))
             by_confidence["resolved"] = by_confidence.get("resolved", 0) + 1
