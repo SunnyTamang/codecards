@@ -30,7 +30,9 @@ CC.controls = (function () {
     ['edge inferred', 'dashed line', 'one definition has that name, so a guess'],
     ['edge ambiguous', 'faint dashes', 'several candidates, none trusted, hidden by default'],
     ['weight', '7', 'how many calls this one line stands for'],
-    ['edge circular resolved', 'heavier line', 'this call closes a ring: something it reaches calls back'],
+    ['edge circular resolved', 'heavier line',
+     'this call closes a ring: something it reaches calls back. Pick the ring ' +
+     'out of the list below to light the whole shape'],
     ['body', '<module>', 'a module’s own top-level code, which runs on import'],
     ['chip entry', 'entry', 'a way into the program'],
     ['chip unused', 'unused', 'nothing calls it, and the language does not either'],
@@ -152,6 +154,14 @@ CC.controls = (function () {
     });
   }
 
+  // Whether the canvas is currently lit for this exact ring. Compared member
+  // by member: two rings can share a member without being the same ring.
+  function isShowing(ring) {
+    const lit = CC.focus.ring();
+    return !!lit && lit.length === ring.length &&
+      lit.every(function (id, i) { return id === ring[i]; });
+  }
+
   function showInfo() {
     const stats = CC.view.state.data.stats;
     const host = document.getElementById('info-panel');
@@ -264,13 +274,31 @@ CC.controls = (function () {
       const note = document.createElement('p');
       note.textContent =
         'Each of these calls into the next and the last calls back, so there ' +
-        'is no order in which they could be read one at a time. The calls ' +
-        'that close a ring are drawn heavier.';
+        'is no order in which they could be read one at a time. Pick one to ' +
+        'open it on the canvas; pick it again to put the canvas back. A ring ' +
+        'is drawn whole, including any call the filters above are hiding.';
       host.appendChild(note);
       rings.forEach(function (ring) {
-        const line = document.createElement('div');
-        line.className = 'skipped';
+        // A button, not a line of text. A ring's members can sit at opposite
+        // corners of the graph with two hundred other lines between them, and
+        // a heavier stroke does not survive that - the reader has to be taken
+        // there. Escape puts the canvas back.
+        const line = document.createElement('button');
+        line.type = 'button';
+        line.className = 'ring-row';
         line.textContent = ring.join('  \u2192  ') + '  \u2192';
+        // The panel is rebuilt whenever it opens, so which ring is lit has to
+        // be read back off the canvas rather than remembered here.
+        line.classList.toggle('showing', isShowing(ring));
+        line.addEventListener('click', function () {
+          const already = isShowing(ring);
+          host.querySelectorAll('.ring-row').forEach(function (row) {
+            row.classList.remove('showing');
+          });
+          if (already) return CC.view.deselect();
+          line.classList.add('showing');
+          CC.focus.setRing(ring);
+        });
         host.appendChild(line);
       });
     }

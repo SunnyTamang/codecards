@@ -45,6 +45,7 @@ CC.view = (function () {
   // reader is never left to infer that an empty patch of canvas means no
   // relationship.
   let weightFloor = null;
+  let insisted = new Set();
 
   //: Above this many aggregate edges the canvas stops reading as a graph.
   const AUTO_LIMIT = 120;
@@ -71,11 +72,32 @@ CC.view = (function () {
     return FLOORS[FLOORS.length - 1];
   }
 
+  // Edges that get drawn whatever the filters say, keyed `source->target`.
+  //
+  // Both filters are answers to "there is too much here": ambiguous calls are
+  // off by default, and quiet edges are trimmed once the canvas stops reading
+  // as a graph. Neither is an answer to "show me this ring", and a control
+  // that lights three cards and no lines because the calls between them were
+  // trimmed is worse than no control. Asking for one thing overrules a rule
+  // about everything.
+  function insist(keys) {
+    const next = new Set(keys);
+    const same = next.size === insisted.size &&
+      Array.from(next).every(function (k) { return insisted.has(k); });
+    if (same) return Promise.resolve();
+    insisted = next;
+    return layout(state.collapsed, { refit: false });
+  }
+
+  function isInsisted(edge) {
+    return insisted.has(edge.source + '->' + edge.target);
+  }
+
   function drawnEdges() {
     const hidden = hiddenIds();
     const out = [];
     state.data.edges.forEach(function (edge) {
-      if (!tierFilter.has(edge.confidence)) return;
+      if (!tierFilter.has(edge.confidence) && !isInsisted(edge)) return;
       const source = foldHidden(edge.source, hidden);
       const target = foldHidden(edge.target, hidden);
       if (!source || !target) return;
@@ -98,6 +120,46 @@ CC.view = (function () {
     // the view to 39%, which is small enough to render every card's detail
     // illegible while still being too large for the block tier to help.
     return layout(next, { focusOn: next.has(id) ? null : id });
+  }
+
+  // Open every plate standing between the reader and these nodes, then frame
+  // them together. Used by the info panel's ring list, where the members
+  // named in the text are usually folded inside packages and the reader
+  // otherwise has to guess which ones to open.
+  //
+  // Re-running the layout is skipped when nothing was closed, so picking the
+  // same ring twice does not shuffle the cards under the reader.
+  function reveal(ids, keys) {
+    insisted = new Set(keys || []);
+    const next = new Set(state.collapsed);
+    ids.forEach(function (id) {
+      let plate = state.data.parentIndex[id];
+      while (plate) { next.delete(plate); plate = state.data.parentIndex[plate]; }
+    });
+    return layout(next, { refit: false }).then(function () { frameOn(ids); });
+  }
+
+  // Fit the camera to a set of nodes rather than to the whole graph. A member
+  // folded inside a plate has no box of its own, so the plate is framed in
+  // its place.
+  function frameOn(ids) {
+    const boxes = [];
+    ids.forEach(function (id) {
+      const drawn = CC.collapse.representative(
+        id, state.data.parentIndex, state.visible, state.collapsed);
+      if (drawn && state.boxes[drawn]) boxes.push(state.boxes[drawn]);
+    });
+    if (!boxes.length) return;
+    const extent = boxes.reduce(function (acc, box) {
+      return {
+        x: Math.min(acc.x, box.x), y: Math.min(acc.y, box.y),
+        right: Math.max(acc.right, box.x + box.w),
+        bottom: Math.max(acc.bottom, box.y + box.h),
+      };
+    }, { x: Infinity, y: Infinity, right: -Infinity, bottom: -Infinity });
+    CC.canvas.fit({ x: extent.x, y: extent.y,
+                    w: extent.right - extent.x,
+                    h: extent.bottom - extent.y }, 80);
   }
 
   // The panel is a mode the reader opts into, via a card's info control.
@@ -557,7 +619,9 @@ CC.view = (function () {
     // Weight is a property of the aggregate, not of any one call, so this
     // cannot be folded into drawnEdges() above.
     const floor = chooseFloor(aggregated);
-    state.edges = aggregated.filter(function (edge) { return edge.weight >= floor; });
+    state.edges = aggregated.filter(function (edge) {
+      return edge.weight >= floor || isInsisted(edge);
+    });
     state.edgeFloor = floor;
     state.edgesWithheld = aggregated.length - state.edges.length;
     state.internalCounts = CC.collapse.internalCounts(
@@ -640,6 +704,8 @@ CC.view = (function () {
     state: state,
     boxes: function () { return state.boxes; },
     toggle: toggle,
+    reveal: reveal,
+    insist: insist,
     select: select,
     selected: selected,
     deselect: deselect,

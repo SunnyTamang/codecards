@@ -77,13 +77,18 @@ CC.edges = (function () {
       const cx = (from.x + tip.x) / 2 - uy * length * BOW;
       const cy = (from.y + tip.y) / 2 + ux * length * BOW;
 
-      // The tier class and the edge id live on this path alone. Anything else
-      // carrying them would inflate every count of drawn edges.
+      // The tier class and `data-edge` live on this path alone. Anything else
+      // carrying them would inflate every count of drawn edges. The head and
+      // the dot get the same key under `data-head`, which nothing counts, so
+      // that dimming can find all three parts of one arrow: they used to be
+      // left out, and every lit edge in an isolated view arrived at a head
+      // faded to 7%.
+      const key = edge.source + '->' + edge.target;
       const line = el('path',
         edge.confidence + (edge.circular ? ' circular' : ''), layer);
       line.setAttribute('d',
         'M' + from.x + ',' + from.y + ' Q' + cx + ',' + cy + ' ' + tip.x + ',' + tip.y);
-      line.dataset.edge = edge.source + '->' + edge.target;
+      line.dataset.edge = key;
 
       // A line drawn at its weakest tier says "something here is a guess"
       // and cannot say how much. The count can, and hovering is where a
@@ -105,6 +110,7 @@ CC.edges = (function () {
       origin.setAttribute('cx', String(from.x + ux * dot));
       origin.setAttribute('cy', String(from.y + uy * dot));
       origin.setAttribute('r', String(dot));
+      origin.dataset.head = key;
 
       // Drawn from the curve's real incoming tangent, so the head never points
       // somewhere the line did not arrive from.
@@ -127,6 +133,7 @@ CC.edges = (function () {
       chevron.setAttribute('d',
         'M' + left.x + ',' + left.y + ' L' + tip.x + ',' + tip.y +
         ' L' + right.x + ',' + right.y);
+      chevron.dataset.head = key;
 
       if (edge.weight > 1) {
         const label = el('text', 'weight', layer);

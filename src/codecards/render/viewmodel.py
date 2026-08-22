@@ -74,9 +74,11 @@ def build_viewmodel(
             "callableCount": report.callable_count,
             "edgeCount": report.edge_count,
             "skipped": [{"path": s.path, "reason": s.reason} for s in report.skipped],
-            # Rare and load-bearing: one ring in this project's own graph,
-            # eight in bubbletea's. Named rather than merely counted, since
-            # "there is a cycle somewhere" only sends the reader hunting.
+            # Rare and load-bearing: eight in bubbletea's graph, and five in
+            # this project's own, all of those plain recursion. Named rather
+            # than merely counted, since "there is a cycle somewhere" only
+            # sends the reader hunting - and the page makes each name a
+            # control that lights the ring on the canvas.
             "cycles": [list(r) for r in rings],
             # Carried into the page so the caveat travels with the artefact.
             # A graph gets shared, opened weeks later, and shown to people who

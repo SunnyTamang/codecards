@@ -563,10 +563,29 @@ html, body {
 /* A call that closes a ring. Weight is the one channel the tiers do not
    already speak for, so this composes with any of them rather than
    competing: a circular inferred edge stays amber and dashed, and reads as
-   heavier. Rare by nature - 1 ring in this project, 8 in bubbletea's - so a
-   quiet mark is enough to find, and the panel names the ring. */
+   heavier. It marks a line rather than finding one - among two hundred
+   strokes a heavier stroke is not a search result, so the panel's ring list
+   is the way to actually get to one, and this is what you see once there. */
 #edges path.circular { stroke-width: 2.6; }
 #edges path.dimmed, #edges circle.dimmed { opacity: 0.07; }
+
+/* One ring, picked out of the info panel. Amber is the annotation ink, and
+   this is the drawing annotating itself: here is the shape you asked about.
+   Everything else is already dimmed to 7%, so the line only has to be
+   unmistakable against the ground, not loud.
+
+   The dash is deliberately left alone. Colour and weight are the answer to
+   "which line did I ask for"; the dash is the answer to "is this call a
+   guess", and a ring can be built entirely out of guesses - on this project's
+   own source with no language server, every one of them is. Highlighting a
+   ring must not launder it. */
+#edges path.ringed {
+  stroke: var(--amber); stroke-width: 3; opacity: 1;
+}
+#edges .edge-head.ringed { stroke-width: 2; }
+#edges circle.ringed { fill: var(--amber); opacity: 1; }
+.card.ringed { border-color: var(--amber); }
+.card.ringed:not(.container) { box-shadow: var(--lift); }
 
 /* Head and connector dot. Both are sized against the zoom in edges.js, so
    they need no stroke scaling of their own beyond matching the line. */
@@ -663,6 +682,20 @@ html, body {
 #info-panel .stale {
   color: var(--text); font-size: 11px;
   border-left: 2px solid var(--amber); padding-left: 8px; margin: 6px 0;
+}
+/* A ring is a control, not a caption: picking one opens it on the canvas.
+   It has to read as pressable without becoming a row of buttons competing
+   with the reading below it, so it stays the muted colour of the text it
+   replaced and earns its border only under the cursor. */
+#info-panel .ring-row {
+  display: block; width: 100%; margin: 3px 0; padding: 5px 8px;
+  font: inherit; font-size: 11px; text-align: left; word-break: break-all;
+  color: var(--muted); background: transparent; cursor: pointer;
+  border: 1px solid transparent; border-radius: 2px;
+}
+#info-panel .ring-row:hover { color: var(--text); border-color: var(--rule); }
+#info-panel .ring-row.showing {
+  color: var(--text); border-color: var(--amber);
 }
 #info-panel table.legend td { padding: 4px 0; vertical-align: top; font-size: 11px; }
 #info-panel table.legend td.sample {
